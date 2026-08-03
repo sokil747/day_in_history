@@ -1,4 +1,8 @@
-from datetime import date
+from __future__ import annotations
+
+import calendar
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -6,14 +10,26 @@ from google.oauth2.service_account import Credentials
 import config
 
 SCOPES = [
-    "https://www.googleapis.com/auth/spreadsheets.readonly",
+    "https://www.googleapis.com/auth/spreadsheets",
 ]
 
+DATE_COLUMN = "date"
+TITLE_COLUMN = "title"
 IMAGE_COLUMN = "image_link"
+TEXT_COLUMN = "text"
+SOURCE_COLUMN = "source"
+
+DATE_FORMAT = "%d/%m/%Y"
 
 
 class SheetRecordNotFound(Exception):
     pass
+
+
+@dataclass
+class HistoryRecord:
+    event_date: date
+    data: dict
 
 
 def get_client() -> gspread.Client:
@@ -23,31 +39,52 @@ def get_client() -> gspread.Client:
     return gspread.authorize(creds)
 
 
-def find_record_for_date(target: date) -> dict:
+def get_records() -> list[HistoryRecord]:
     client = get_client()
     sheet = client.open_by_key(config.GOOGLE_SHEET_ID).worksheet(
         config.GOOGLE_SHEET_NAME
     )
     rows = sheet.get_all_values()
     if not rows:
-        raise SheetRecordNotFound("Sheet is empty")
+        return []
 
     headers = [str(h).strip() for h in rows[0]]
-
-    target_str = target.strftime("%d/%m/%Y")
+    records = []
     for raw_row in rows[1:]:
-        if not raw_row:
+        if not raw_row or not raw_row[0].strip():
             continue
-        date_cell = str(raw_row[0]).strip()
-        if date_cell == target_str:
-            return dict(zip(headers, raw_row))
+        data = dict(zip(headers, raw_row))
+        try:
+            event_date = datetime.strptime(data[DATE_COLUMN].strip(), DATE_FORMAT).date()
+        except (ValueError, KeyError):
+            continue
+        records.append(HistoryRecord(event_date=event_date, data=data))
+    return records
 
-    raise SheetRecordNotFound(f"No record found for {target_str}")
+
+def find_record_for_date(target: date) -> HistoryRecord:
+    matching = [r for r in get_records() if r.event_date == target]
+    if not matching:
+        raise SheetRecordNotFound(
+            f"No record found for {target.strftime(DATE_FORMAT)}"
+        )
+    return matching[-1]
 
 
-def format_record(record: dict) -> str:
-    return "\n".join(
-        str(value).strip()
-        for key, value in record.items()
-        if value and value.strip() and key != IMAGE_COLUMN
+def _records_in_range(start: date, end: date) -> list[HistoryRecord]:
+    return sorted(
+        (r for r in get_records() if start <= r.event_date <= end),
+        key=lambda r: r.event_date,
     )
+
+
+def find_records_for_week(anchor: date) -> list[HistoryRecord]:
+    start = anchor - timedelta(days=anchor.weekday())
+    end = start + timedelta(days=6)
+    return _records_in_range(start, end)
+
+
+def find_records_for_month(anchor: date) -> list[HistoryRecord]:
+    start = anchor.replace(day=1)
+    end = anchor.replace(day=calendar.monthrange(anchor.year, anchor.month)[1])
+    return _records_in_range(start, end)
