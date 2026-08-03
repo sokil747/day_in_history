@@ -62,13 +62,8 @@ def get_records() -> list[HistoryRecord]:
     return records
 
 
-def find_record_for_date(target: date) -> HistoryRecord:
-    matching = [r for r in get_records() if r.event_date == target]
-    if not matching:
-        raise SheetRecordNotFound(
-            f"No record found for {target.strftime(DATE_FORMAT)}"
-        )
-    return matching[-1]
+def find_records_for_date(target: date) -> list[HistoryRecord]:
+    return [r for r in get_records() if r.event_date == target]
 
 
 def _records_in_range(start: date, end: date) -> list[HistoryRecord]:

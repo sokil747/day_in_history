@@ -22,8 +22,7 @@ from formatting import build_message
 from google_sheets_service import (
     IMAGE_COLUMN,
     HistoryRecord,
-    SheetRecordNotFound,
-    find_record_for_date,
+    find_records_for_date,
     find_records_for_month,
     find_records_for_week,
 )
@@ -148,12 +147,8 @@ async def _send_records(message: Message, records: list[HistoryRecord], empty_te
 async def on_day_in_history(callback: CallbackQuery) -> None:
     await callback.answer()
     await _clear_previous(callback.message.chat.id)
-    try:
-        record = find_record_for_date(date.today())
-    except SheetRecordNotFound as exc:
-        _remember(callback.message.chat.id, await callback.message.answer(str(exc)))
-        return
-    await _send_record(callback.message, record)
+    records = find_records_for_date(date.today())
+    await _send_records(callback.message, records, "Записів на сьогодні не знайдено.")
 
 
 @dp.callback_query(F.data == WEEK_EVENTS_CALLBACK)
