@@ -1,5 +1,6 @@
 import asyncio
 import io
+import json
 import logging
 from datetime import date
 
@@ -11,6 +12,7 @@ from aiogram.filters import CommandStart
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
+    FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
@@ -29,9 +31,13 @@ from google_sheets_service import (
 
 logging.basicConfig(level=logging.INFO)
 
+with open("config.json", encoding="utf-8") as _f:
+    welcome_config = json.load(_f)
+
 bot = Bot(token=config.BOT_TOKEN)
 dp = Dispatcher()
 
+START_CALLBACK = "start"
 DAY_IN_HISTORY_CALLBACK = "day_in_history"
 WEEK_EVENTS_CALLBACK = "week_events"
 MONTH_EVENTS_CALLBACK = "month_events"
@@ -66,9 +72,34 @@ def _build_keyboard() -> InlineKeyboardMarkup:
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message) -> None:
-    await message.answer(
-        "Оберіть, що показати.", reply_markup=_build_keyboard()
+    caption = (
+        f"{welcome_config['welcome_text']}\n\n{welcome_config['welcome_footer']}"
     )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=welcome_config["start_button_text"],
+                    callback_data=START_CALLBACK,
+                )
+            ]
+        ]
+    )
+    try:
+        await message.answer_photo(
+            FSInputFile(welcome_config["welcome_img"]),
+            caption=caption,
+            reply_markup=keyboard,
+        )
+    except Exception as exc:
+        logging.warning("Failed to send intro image: %s", exc)
+        await message.answer(caption, reply_markup=keyboard)
+
+
+@dp.callback_query(F.data == START_CALLBACK)
+async def on_start(callback: CallbackQuery) -> None:
+    await callback.answer()
+    await callback.message.edit_reply_markup(reply_markup=_build_keyboard())
 
 
 async def _clear_previous(chat_id: int) -> None:
