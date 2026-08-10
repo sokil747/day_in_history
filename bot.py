@@ -42,6 +42,12 @@ DAY_IN_HISTORY_CALLBACK = "day_in_history"
 WEEK_EVENTS_CALLBACK = "week_events"
 MONTH_EVENTS_CALLBACK = "month_events"
 
+TEXT_COMMANDS = {
+    "day": {"day in history", "день в історії", "день"},
+    "week": {"week in history", "important events of the week", "важливі події тижня", "тиждень"},
+    "month": {"month in history", "important events of the month", "важливі події місяця", "місяць"},
+}
+
 USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
 MAX_CAPTION_LEN = 1024
 
@@ -70,12 +76,8 @@ def _build_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-@dp.message(CommandStart())
-async def cmd_start(message: Message) -> None:
-    caption = (
-        f"{welcome_config['welcome_text']}\n\n{welcome_config['welcome_footer']}"
-    )
-    keyboard = InlineKeyboardMarkup(
+def _welcome_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
@@ -85,21 +87,34 @@ async def cmd_start(message: Message) -> None:
             ]
         ]
     )
+
+
+async def _send_welcome(message: Message) -> None:
+    caption = (
+        f"{welcome_config['welcome_text']}\n\n{welcome_config['welcome_footer']}"
+    )
     try:
         await message.answer_photo(
             FSInputFile(welcome_config["welcome_img"]),
             caption=caption,
-            reply_markup=keyboard,
+            reply_markup=_welcome_keyboard(),
         )
     except Exception as exc:
         logging.warning("Failed to send intro image: %s", exc)
-        await message.answer(caption, reply_markup=keyboard)
+        await message.answer(caption, reply_markup=_welcome_keyboard())
+
+
+@dp.message(CommandStart())
+async def cmd_start(message: Message) -> None:
+    await _send_welcome(message)
 
 
 @dp.callback_query(F.data == START_CALLBACK)
 async def on_start(callback: CallbackQuery) -> None:
-    await callback.answer()
-    await callback.message.edit_reply_markup(reply_markup=_build_keyboard())
+    try:
+        await callback.message.edit_reply_markup(reply_markup=_build_keyboard())
+    finally:
+        await callback.answer()
 
 
 async def _clear_previous(chat_id: int) -> None:
@@ -176,26 +191,60 @@ async def _send_records(message: Message, records: list[HistoryRecord], empty_te
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
 async def on_day_in_history(callback: CallbackQuery) -> None:
-    await callback.answer()
     await _clear_previous(callback.message.chat.id)
-    records = find_records_for_date(date.today())
-    await _send_records(callback.message, records, "Записів на сьогодні не знайдено.")
+    try:
+        records = find_records_for_date(date.today())
+        await _send_records(callback.message, records, "Записів на сьогодні не знайдено.")
+    finally:
+        await callback.answer()
 
 
 @dp.callback_query(F.data == WEEK_EVENTS_CALLBACK)
 async def on_week_events(callback: CallbackQuery) -> None:
-    await callback.answer()
     await _clear_previous(callback.message.chat.id)
-    records = find_records_for_week(date.today())
-    await _send_records(callback.message, records, "Цього тижня записів не знайдено.")
+    try:
+        records = find_records_for_week(date.today())
+        await _send_records(callback.message, records, "Цього тижня записів не знайдено.")
+    finally:
+        await callback.answer()
 
 
 @dp.callback_query(F.data == MONTH_EVENTS_CALLBACK)
 async def on_month_events(callback: CallbackQuery) -> None:
-    await callback.answer()
     await _clear_previous(callback.message.chat.id)
-    records = find_records_for_month(date.today())
-    await _send_records(callback.message, records, "Цього місяця записів не знайдено.")
+    try:
+        records = find_records_for_month(date.today())
+        await _send_records(callback.message, records, "Цього місяця записів не знайдено.")
+    finally:
+        await callback.answer()
+
+
+@dp.message(F.text)
+async def on_text(message: Message) -> None:
+    if message.text.startswith("/"):
+        return
+
+    text = message.text.strip().lower()
+    if text in TEXT_COMMANDS["day"]:
+        await _send_records(
+            message,
+            find_records_for_date(date.today()),
+            "Записів на сьогодні не знайдено.",
+        )
+    elif text in TEXT_COMMANDS["week"]:
+        await _send_records(
+            message,
+            find_records_for_week(date.today()),
+            "Цього тижня записів не знайдено.",
+        )
+    elif text in TEXT_COMMANDS["month"]:
+        await _send_records(
+            message,
+            find_records_for_month(date.today()),
+            "Цього місяця записів не знайдено.",
+        )
+    else:
+        await _send_welcome(message)
 
 
 async def main() -> None:
