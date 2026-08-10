@@ -59,17 +59,20 @@ def _build_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="День в Історії", callback_data=DAY_IN_HISTORY_CALLBACK
+                    text=welcome_config["day_button_text"],
+                    callback_data=DAY_IN_HISTORY_CALLBACK,
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="Важливі події тижня", callback_data=WEEK_EVENTS_CALLBACK
+                    text=welcome_config["week_button_text"],
+                    callback_data=WEEK_EVENTS_CALLBACK,
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="Важливі події місяця", callback_data=MONTH_EVENTS_CALLBACK
+                    text=welcome_config["month_button_text"],
+                    callback_data=MONTH_EVENTS_CALLBACK,
                 )
             ],
         ]
@@ -112,7 +115,16 @@ async def cmd_start(message: Message) -> None:
 @dp.callback_query(F.data == START_CALLBACK)
 async def on_start(callback: CallbackQuery) -> None:
     try:
-        await callback.message.edit_reply_markup(reply_markup=_build_keyboard())
+        await callback.message.answer_photo(
+            FSInputFile(welcome_config["about_img"]),
+            caption=welcome_config["about_text"],
+            reply_markup=_build_keyboard(),
+        )
+    except Exception as exc:
+        logging.warning("Failed to send about image: %s", exc)
+        await callback.message.answer(
+            welcome_config["about_text"], reply_markup=_build_keyboard()
+        )
     finally:
         await callback.answer()
 
