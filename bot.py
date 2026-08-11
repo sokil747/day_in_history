@@ -1,29 +1,22 @@
 import asyncio
-import io
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
 
-import httpx
 from aiogram import Bot, Dispatcher, F
-from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.types import (
-    BufferedInputFile,
     CallbackQuery,
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
-from PIL import Image
 
 import config
-from formatting import build_message
+from formatting import build_day_events, build_grouped_events
 from google_sheets_service import (
-    IMAGE_COLUMN,
-    HistoryRecord,
     find_records_for_date,
     find_records_for_month,
     find_records_for_week,
@@ -48,10 +41,18 @@ TEXT_COMMANDS = {
     "month": {"month in history", "important events of the month", "важливі події місяця", "місяць"},
 }
 
-USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"
-MAX_CAPTION_LEN = 1024
-
 chat_responses: dict[int, list[int]] = {}
+
+
+def _effective_today() -> date:
+    test_mode = welcome_config.get("test_mode", False)
+    test_day = welcome_config.get("test_day", "")
+    if test_mode and test_day:
+        try:
+            return datetime.strptime(test_day, "%d/%m/%Y").date()
+        except ValueError:
+            pass
+    return date.today()
 
 
 def _build_keyboard() -> InlineKeyboardMarkup:
@@ -141,72 +142,42 @@ def _remember(chat_id: int, message: Message) -> None:
     chat_responses.setdefault(chat_id, []).append(message.message_id)
 
 
-def _convert_to_jpeg(data: bytes) -> bytes:
-    img = Image.open(io.BytesIO(data))
-    img = img.convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    return buf.getvalue()
-
-
-async def _send_photo_with_caption(message: Message, photo, text: str) -> None:
-    caption, rest = text[:MAX_CAPTION_LEN], text[MAX_CAPTION_LEN:]
+async def _send_photo_then_text(
+    message: Message, image_key: str, caption: str, body: str, reply_markup=None
+) -> None:
     try:
         sent = await message.answer_photo(
-            photo=photo, caption=caption, parse_mode=ParseMode.HTML
+            FSInputFile(welcome_config[image_key]),
+            caption=caption,
+            reply_markup=reply_markup,
         )
-    except TelegramBadRequest:
-        sent = await message.answer_photo(photo=photo, caption=caption)
-    _remember(message.chat.id, sent)
-    if rest:
-        _remember(message.chat.id, await message.answer(rest))
-
-
-async def _send_image(message: Message, url: str, text: str) -> bool:
-    try:
-        await _send_photo_with_caption(message, url, text)
-        return True
-    except TelegramBadRequest as exc:
-        logging.info("Telegram rejected URL photo (%s), converting: %s", exc, url)
-
-    try:
-        async with httpx.AsyncClient(
-            follow_redirects=True, headers={"User-Agent": USER_AGENT}, timeout=30
-        ) as client:
-            resp = await client.get(url)
-            resp.raise_for_status()
-        jpeg = _convert_to_jpeg(resp.content)
-        await _send_photo_with_caption(
-            message, BufferedInputFile(jpeg, filename="image.jpg"), text
-        )
-        return True
     except Exception as exc:
-        logging.warning("Failed to download/convert image %s: %s", url, exc)
-        return False
+        logging.warning("Failed to send image %s: %s", image_key, exc)
+        sent = await message.answer(caption, reply_markup=reply_markup)
+    _remember(message.chat.id, sent)
+    if body:
+        _remember(message.chat.id, await message.answer(body))
 
 
-async def _send_record(message: Message, record: HistoryRecord) -> None:
-    text = build_message(record)
-    image_url = record.data.get(IMAGE_COLUMN, "").strip()
-    if image_url and await _send_image(message, image_url, text):
-        return
-    _remember(message.chat.id, await message.answer(text, parse_mode=ParseMode.HTML))
-
-
-async def _send_records(message: Message, records: list[HistoryRecord], empty_text: str) -> None:
-    if not records:
-        _remember(message.chat.id, await message.answer(empty_text))
-        return
-    for record in records:
-        await _send_record(message, record)
+async def _send_day_screen(message: Message, records) -> None:
+    day_footer = welcome_config.get("day_footer", "")
+    if records:
+        events_text = build_day_events(records)
+    else:
+        events_text = "✅  Записів на сьогодні не знайдено."
+    if day_footer:
+        events_text = f"{events_text}\n\n{day_footer}"
+    await _send_photo_then_text(
+        message, "day_img", welcome_config["day_header"], events_text
+    )
 
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
 async def on_day_in_history(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
-        records = find_records_for_date(date.today())
-        await _send_records(callback.message, records, "Записів на сьогодні не знайдено.")
+        records = find_records_for_date(_effective_today())
+        await _send_day_screen(callback.message, records)
     finally:
         await callback.answer()
 
@@ -215,8 +186,11 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
 async def on_week_events(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
-        records = find_records_for_week(date.today())
-        await _send_records(callback.message, records, "Цього тижня записів не знайдено.")
+        records = find_records_for_week(_effective_today())
+        body = build_grouped_events(records) or "Цього тижня записів не знайдено."
+        await _send_photo_then_text(
+            callback.message, "week_img", welcome_config["week_button_text"], body
+        )
     finally:
         await callback.answer()
 
@@ -225,8 +199,11 @@ async def on_week_events(callback: CallbackQuery) -> None:
 async def on_month_events(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
-        records = find_records_for_month(date.today())
-        await _send_records(callback.message, records, "Цього місяця записів не знайдено.")
+        records = find_records_for_month(_effective_today())
+        body = build_grouped_events(records) or "Цього місяця записів не знайдено."
+        await _send_photo_then_text(
+            callback.message, "month_img", welcome_config["month_button_text"], body
+        )
     finally:
         await callback.answer()
 
@@ -238,22 +215,19 @@ async def on_text(message: Message) -> None:
 
     text = message.text.strip().lower()
     if text in TEXT_COMMANDS["day"]:
-        await _send_records(
-            message,
-            find_records_for_date(date.today()),
-            "Записів на сьогодні не знайдено.",
-        )
+        records = find_records_for_date(_effective_today())
+        await _send_day_screen(message, records)
     elif text in TEXT_COMMANDS["week"]:
-        await _send_records(
-            message,
-            find_records_for_week(date.today()),
-            "Цього тижня записів не знайдено.",
+        records = find_records_for_week(_effective_today())
+        body = build_grouped_events(records) or "Цього тижня записів не знайдено."
+        await _send_photo_then_text(
+            message, "week_img", welcome_config["week_button_text"], body
         )
     elif text in TEXT_COMMANDS["month"]:
-        await _send_records(
-            message,
-            find_records_for_month(date.today()),
-            "Цього місяця записів не знайдено.",
+        records = find_records_for_month(_effective_today())
+        body = build_grouped_events(records) or "Цього місяця записів не знайдено."
+        await _send_photo_then_text(
+            message, "month_img", welcome_config["month_button_text"], body
         )
     else:
         await _send_welcome(message)

@@ -26,7 +26,12 @@ Telegram bot that shows the record for today's date from a Google Sheet after cl
 
 4. Create your Telegram bot with [@BotFather](https://t.me/BotFather), copy the token into `BOT_TOKEN` in `.env`.
 
-5. Make sure your sheet's first column contains dates in `dd/mm/yyyy` format (e.g. `03/08/2026`) and the history text is in the following columns.
+5. Your spreadsheet must have a worksheet named per `GOOGLE_SHEET_NAME` (default `Dates`) with these columns:
+
+   | `Month` | `Day` | `Order` | `Year` | `Emoji` | `Category` | `Event_UA` | `Джерело` |
+   |---------|-------|---------|--------|---------|------------|-------------|-----------|
+
+   Each row describes one historical event. The `Order` column controls the display order of events on the same date (1, 2, 3, ...).
 
 ## Run
 
@@ -34,7 +39,7 @@ Telegram bot that shows the record for today's date from a Google Sheet after cl
 python bot.py
 ```
 
-The bot shows a "День в Історії" inline button. When clicked, it finds the row whose date equals today (`dd/mm/yyyy`) and replies with the record text.
+The bot shows a "День в Історії" inline button. When clicked, it sends the day image with a header, then the events for today's date (sorted by the `Order` column) followed by the footer.
 
 ## Deploy on a VPS as a systemd service
 

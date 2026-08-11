@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import calendar
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -13,23 +12,21 @@ SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
 ]
 
-DATE_COLUMN = "date"
-TITLE_COLUMN = "title"
-IMAGE_COLUMN = "image_link"
-TEXT_COLUMN = "text"
-SOURCE_COLUMN = "source"
 
-DATE_FORMAT = "%d/%m/%Y"
+@dataclass
+class HistoryRecord:
+    month: int
+    day: int
+    order: int
+    year: int
+    emoji: str
+    category: str
+    text: str
+    source: str
 
 
 class SheetRecordNotFound(Exception):
     pass
-
-
-@dataclass
-class HistoryRecord:
-    event_date: date
-    data: dict
 
 
 def get_client() -> gspread.Client:
@@ -37,6 +34,13 @@ def get_client() -> gspread.Client:
         config.GOOGLE_CREDENTIALS_PATH, scopes=SCOPES
     )
     return gspread.authorize(creds)
+
+
+def _as_int(value: str, default: int = 0) -> int:
+    try:
+        return int(float(value.strip()))
+    except (ValueError, AttributeError):
+        return default
 
 
 def get_records() -> list[HistoryRecord]:
@@ -54,32 +58,53 @@ def get_records() -> list[HistoryRecord]:
         if not raw_row or not raw_row[0].strip():
             continue
         data = dict(zip(headers, raw_row))
-        try:
-            event_date = datetime.strptime(data[DATE_COLUMN].strip(), DATE_FORMAT).date()
-        except (ValueError, KeyError):
+        month = _as_int(data.get("Month", ""))
+        day = _as_int(data.get("Day", ""))
+        if month <= 0 or day <= 0:
             continue
-        records.append(HistoryRecord(event_date=event_date, data=data))
+        records.append(
+            HistoryRecord(
+                month=month,
+                day=day,
+                order=_as_int(data.get("Order", "")),
+                year=_as_int(data.get("Year", "")),
+                emoji=data.get("Emoji", "").strip(),
+                category=data.get("Category", "").strip(),
+                text=data.get("Event_UA", "").strip(),
+                source=data.get("Джерело", "").strip(),
+            )
+        )
     return records
 
 
 def find_records_for_date(target: date) -> list[HistoryRecord]:
-    return [r for r in get_records() if r.event_date == target]
-
-
-def _records_in_range(start: date, end: date) -> list[HistoryRecord]:
     return sorted(
-        (r for r in get_records() if start <= r.event_date <= end),
-        key=lambda r: r.event_date,
+        (
+            r
+            for r in get_records()
+            if r.month == target.month and r.day == target.day
+        ),
+        key=lambda r: (r.order, r.month, r.day),
     )
+
+
+def _pairs_in_range(start: date, end: date) -> set[tuple[int, int]]:
+    pairs: set[tuple[int, int]] = set()
+    current = start
+    while current <= end:
+        pairs.add((current.month, current.day))
+        current += timedelta(days=1)
+    return pairs
 
 
 def find_records_for_week(anchor: date) -> list[HistoryRecord]:
     start = anchor - timedelta(days=anchor.weekday())
     end = start + timedelta(days=6)
-    return _records_in_range(start, end)
+    pairs = _pairs_in_range(start, end)
+    records = [r for r in get_records() if (r.month, r.day) in pairs]
+    return sorted(records, key=lambda r: (r.month, r.day, r.order))
 
 
 def find_records_for_month(anchor: date) -> list[HistoryRecord]:
-    start = anchor.replace(day=1)
-    end = anchor.replace(day=calendar.monthrange(anchor.year, anchor.month)[1])
-    return _records_in_range(start, end)
+    records = [r for r in get_records() if r.month == anchor.month]
+    return sorted(records, key=lambda r: (r.day, r.order))

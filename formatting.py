@@ -1,59 +1,46 @@
 from __future__ import annotations
 
-import html
+from google_sheets_service import HistoryRecord
 
-from google_sheets_service import (
-    SOURCE_COLUMN,
-    TEXT_COLUMN,
-    TITLE_COLUMN,
-    HistoryRecord,
-)
-
-MAX_WORDS = 120
-LINE_WIDTH = 30
-SOURCE_LINK_LONG = "Детальніше"
-SOURCE_LINK_NORMAL = "Джерело"
-
-
-def _esc(value: str) -> str:
-    return html.escape(value, quote=True)
-
-
-def truncate_text(text: str, limit: int = MAX_WORDS) -> tuple[str, bool]:
-    words = text.split()
-    if len(words) <= limit:
-        return text, False
-    return " ".join(words[:limit]) + " ...", True
+MONTH_GENITIVE = [
+    "січня",
+    "лютого",
+    "березня",
+    "квітня",
+    "травня",
+    "червня",
+    "липня",
+    "серпня",
+    "вересня",
+    "жовтня",
+    "листопада",
+    "грудня",
+]
 
 
-def _center(line: str, width: int = LINE_WIDTH) -> str:
-    pad = max(width - len(line), 0)
-    return " " * (pad // 2) + line + " " * (pad - pad // 2)
+def _event_line(record: HistoryRecord) -> str:
+    if record.emoji:
+        return f"{record.emoji} {record.text}"
+    return record.text
 
 
-def _right_align(line: str, width: int = LINE_WIDTH) -> str:
-    pad = max(width - len(line), 0)
-    return " " * pad + line
-
-
-def _build_source_link(record: HistoryRecord, truncated: bool) -> str:
-    source = record.data.get(SOURCE_COLUMN, "").strip()
-    if not source:
+def build_day_events(records: list[HistoryRecord]) -> str:
+    if not records:
         return ""
-    label = SOURCE_LINK_LONG if truncated else SOURCE_LINK_NORMAL
-    return f'<a href="{_esc(source)}">{_esc(label)}</a>'
+    first = records[0]
+    date_line = f"✅  {first.day} {MONTH_GENITIVE[first.month - 1]}"
+    body = "\n".join(_event_line(r) for r in records)
+    return f"{date_line}\n\n{body}"
 
 
-def build_message(record: HistoryRecord) -> str:
-    date_line = _right_align(record.event_date.strftime("%d.%m.%Y"))
-    title = record.data.get(TITLE_COLUMN, "").strip() or "День в Історії"
-    title_line = _center(f"<b>{_esc(title)}</b>")
+def build_grouped_events(records: list[HistoryRecord]) -> str:
+    groups: dict[tuple[int, int], list[HistoryRecord]] = {}
+    for record in records:
+        groups.setdefault((record.month, record.day), []).append(record)
 
-    text = record.data.get(TEXT_COLUMN, "").strip()
-    body, truncated = truncate_text(text)
-
-    parts = [date_line, title_line, body]
-    link = _build_source_link(record, truncated)
-    if link:
-        parts.append(link)
+    parts = []
+    for month, day in sorted(groups):
+        date_line = f"✅  {day} {MONTH_GENITIVE[month - 1]}"
+        block = [date_line, *( _event_line(r) for r in groups[(month, day)] )]
+        parts.append("\n".join(block))
     return "\n\n".join(parts)
