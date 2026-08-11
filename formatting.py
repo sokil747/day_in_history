@@ -18,29 +18,44 @@ MONTH_GENITIVE = [
 ]
 
 
-def _event_line(record: HistoryRecord) -> str:
+def _event_text(record: HistoryRecord) -> str:
+    text = record.text.strip()
+    year_prefix = f"У {record.year} році"
+    if not record.year or text.startswith(year_prefix):
+        return text
+    lowered = text[:1].lower() + text[1:] if text else text
+    return f"{year_prefix} {lowered}"
+
+
+def _event_line(record: HistoryRecord, with_source: bool = False) -> str:
+    line = _event_text(record)
     if record.emoji:
-        return f"{record.emoji} {record.text}"
-    return record.text
+        line = f"{record.emoji} {line}"
+    if with_source and record.source:
+        line = f"{line} Джерело ({record.source})"
+    return line
+
+
+def _date_line(month: int, day: int) -> str:
+    return f"✅  {day} {MONTH_GENITIVE[month - 1]}"
 
 
 def build_day_events(records: list[HistoryRecord]) -> str:
     if not records:
         return ""
-    first = records[0]
-    date_line = f"✅  {first.day} {MONTH_GENITIVE[first.month - 1]}"
     body = "\n".join(_event_line(r) for r in records)
-    return f"{date_line}\n\n{body}"
+    return f"{_date_line(records[0].month, records[0].day)}\n\n{body}"
 
 
 def build_grouped_events(records: list[HistoryRecord]) -> str:
+    if not records:
+        return ""
     groups: dict[tuple[int, int], list[HistoryRecord]] = {}
     for record in records:
         groups.setdefault((record.month, record.day), []).append(record)
 
-    parts = []
+    blocks = []
     for month, day in sorted(groups):
-        date_line = f"✅  {day} {MONTH_GENITIVE[month - 1]}"
-        block = [date_line, *( _event_line(r) for r in groups[(month, day)] )]
-        parts.append("\n".join(block))
-    return "\n\n".join(parts)
+        body = "\n".join(_event_line(r, with_source=True) for r in groups[(month, day)])
+        blocks.append(f"{_date_line(month, day)}\n\n\n{body}")
+    return "\n\n\n".join(blocks)

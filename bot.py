@@ -172,6 +172,21 @@ async def _send_day_screen(message: Message, records) -> None:
     )
 
 
+async def _send_grouped_screen(
+    message: Message, image_key: str, records, empty_text: str
+) -> None:
+    day_footer = welcome_config.get("day_footer", "")
+    if records:
+        events_text = build_grouped_events(records)
+    else:
+        events_text = empty_text
+    if day_footer:
+        events_text = f"{events_text}\n\n\n{day_footer}"
+    await _send_photo_then_text(
+        message, image_key, welcome_config["day_header"], events_text
+    )
+
+
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
 async def on_day_in_history(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
@@ -187,9 +202,8 @@ async def on_week_events(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_week(_effective_today())
-        body = build_grouped_events(records) or "Цього тижня записів не знайдено."
-        await _send_photo_then_text(
-            callback.message, "week_img", welcome_config["week_button_text"], body
+        await _send_grouped_screen(
+            callback.message, "week_img", records, "Цього тижня записів не знайдено."
         )
     finally:
         await callback.answer()
@@ -200,9 +214,8 @@ async def on_month_events(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_month(_effective_today())
-        body = build_grouped_events(records) or "Цього місяця записів не знайдено."
-        await _send_photo_then_text(
-            callback.message, "month_img", welcome_config["month_button_text"], body
+        await _send_grouped_screen(
+            callback.message, "month_img", records, "Цього місяця записів не знайдено."
         )
     finally:
         await callback.answer()
@@ -219,15 +232,13 @@ async def on_text(message: Message) -> None:
         await _send_day_screen(message, records)
     elif text in TEXT_COMMANDS["week"]:
         records = find_records_for_week(_effective_today())
-        body = build_grouped_events(records) or "Цього тижня записів не знайдено."
-        await _send_photo_then_text(
-            message, "week_img", welcome_config["week_button_text"], body
+        await _send_grouped_screen(
+            message, "week_img", records, "Цього тижня записів не знайдено."
         )
     elif text in TEXT_COMMANDS["month"]:
         records = find_records_for_month(_effective_today())
-        body = build_grouped_events(records) or "Цього місяця записів не знайдено."
-        await _send_photo_then_text(
-            message, "month_img", welcome_config["month_button_text"], body
+        await _send_grouped_screen(
+            message, "month_img", records, "Цього місяця записів не знайдено."
         )
     else:
         await _send_welcome(message)

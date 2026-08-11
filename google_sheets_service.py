@@ -101,6 +101,7 @@ def find_records_for_week(anchor: date) -> list[HistoryRecord]:
     start = anchor - timedelta(days=anchor.weekday())
     end = start + timedelta(days=6)
     pairs = _pairs_in_range(start, end)
+    pairs = {p for p in pairs if p[0] == anchor.month}
     records = [r for r in get_records() if (r.month, r.day) in pairs]
     return sorted(records, key=lambda r: (r.month, r.day, r.order))
 
