@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import html
+
 from google_sheets_service import HistoryRecord
 
 MONTH_GENITIVE = [
@@ -32,7 +34,7 @@ def _event_line(record: HistoryRecord, with_source: bool = False) -> str:
     if record.emoji:
         line = f"{record.emoji} {line}"
     if with_source and record.source:
-        line = f"{line} Джерело ({record.source})"
+        line = f'{line} <a href="{html.escape(record.source, quote=True)}">Джерело</a>'
     return line
 
 

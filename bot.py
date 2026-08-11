@@ -4,6 +4,7 @@ import logging
 from datetime import date, datetime
 
 from aiogram import Bot, Dispatcher, F
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.types import (
@@ -156,7 +157,7 @@ async def _send_photo_then_text(
         sent = await message.answer(caption, reply_markup=reply_markup)
     _remember(message.chat.id, sent)
     if body:
-        _remember(message.chat.id, await message.answer(body))
+        _remember(message.chat.id, await message.answer(body, parse_mode=ParseMode.HTML))
 
 
 async def _send_day_screen(message: Message, records) -> None:
