@@ -1,16 +1,23 @@
 from __future__ import annotations
 
 import html
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
 import gspread
+import requests
+from google.auth.transport.requests import AuthorizedSession
 from google.oauth2.service_account import Credentials
 
 import config
 
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
+]
+
+DRIVE_SCOPES = [
+    "https://www.googleapis.com/auth/drive.readonly",
 ]
 
 
@@ -183,3 +190,44 @@ def active_ads_on(target: date) -> list[AdRecord]:
             continue
         ads.append(ad)
     return ads
+
+
+def extract_drive_file_id(url: str) -> str | None:
+    match = re.search(r"/file/d/([A-Za-z0-9_-]+)", url or "")
+    if match:
+        return match.group(1)
+    return None
+
+
+def download_drive_file(file_id: str) -> bytes | None:
+    creds = Credentials.from_service_account_file(
+        config.GOOGLE_CREDENTIALS_PATH, scopes=DRIVE_SCOPES
+    )
+    session = AuthorizedSession(creds)
+    response = session.get(
+        f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media"
+    )
+    if response.status_code != 200:
+        return None
+    return response.content
+
+
+def download_ad_logo(url: str) -> bytes | None:
+    file_id = extract_drive_file_id(url)
+    if file_id:
+        content = download_drive_file(file_id)
+        if content:
+            return content
+    for candidate in (
+        url,
+        f"https://drive.google.com/uc?export=view&id={file_id}" if file_id else None,
+    ):
+        if not candidate:
+            continue
+        try:
+            response = requests.get(candidate, timeout=20)
+        except requests.RequestException:
+            continue
+        if response.status_code == 200 and response.content:
+            return response.content
+    return None

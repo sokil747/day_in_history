@@ -10,6 +10,7 @@ from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import CommandStart
 from aiogram.types import (
+    BufferedInputFile,
     CallbackQuery,
     FSInputFile,
     InlineKeyboardButton,
@@ -22,6 +23,7 @@ from formatting import build_day_events, build_grouped_events
 from google_sheets_service import (
     AdRecord,
     active_ads_on,
+    download_ad_logo,
     find_records_for_date,
     find_records_for_month,
     find_records_for_week,
@@ -234,33 +236,48 @@ def _build_ad_caption(ad: AdRecord, with_separator: bool) -> str:
     return "\n\n".join(parts)
 
 
-def _split_footer(footer: str) -> tuple[str, str]:
-    marker = "<b>РЕКЛАМА :</b>"
+def _split_footer(footer: str) -> tuple[str, str, str]:
+    marker = "РЕКЛАМА :"
     idx = footer.find(marker)
     if idx == -1:
-        return footer, ""
-    head = footer[: idx + len(marker)]
-    tail = footer[idx + len(marker) :]
-    if tail.startswith("\n"):
-        tail = tail[1:]
-    return head, tail
+        return footer, "", ""
+    line_start = footer.rfind("\n", 0, idx) + 1
+    head = footer[:line_start].rstrip("\n")
+    line_end = footer.find("\n", idx)
+    if line_end == -1:
+        marker_line = footer[line_start:].strip()
+        tail = ""
+    else:
+        marker_line = footer[line_start:line_end].strip()
+        tail = footer[line_end + 1 :]
+    return head, marker_line, tail
 
 
-async def _send_ads(message: Message) -> None:
+async def _send_ads(message: Message, ad_header: str) -> None:
     try:
         ads = active_ads_on(_effective_today())
     except Exception as exc:
         logging.warning("Failed to load advertisements: %s", exc)
         return
+    if not ads:
+        return
     for i, ad in enumerate(ads):
         caption = _build_ad_caption(ad, with_separator=i > 0)
-        photo_url = _drive_direct_url(ad.logo)
+        if i == 0 and ad_header:
+            caption = f"{ad_header}\n\n{caption}"
+        photo = _drive_direct_url(ad.logo)
+        try:
+            content = download_ad_logo(ad.logo)
+            if content:
+                photo = BufferedInputFile(content, filename="ad.jpg")
+        except Exception as exc:
+            logging.warning("Failed to download logo %s: %s", ad.logo, exc)
         try:
             sent = await message.answer_photo(
-                photo=photo_url, caption=caption, parse_mode=ParseMode.HTML
+                photo=photo, caption=caption, parse_mode=ParseMode.HTML
             )
         except Exception as exc:
-            logging.warning("Failed to send ad photo %s: %s", photo_url, exc)
+            logging.warning("Failed to send ad photo %s: %s", photo, exc)
             sent = await message.answer(caption, parse_mode=ParseMode.HTML)
         _remember(message.chat.id, sent)
 
@@ -275,7 +292,7 @@ async def _send_footer_tail(message: Message, footer_tail: str) -> None:
 
 async def _send_day_screen(message: Message, records) -> None:
     day_footer = welcome_config.get("day_footer", "")
-    footer_head, footer_tail = _split_footer(day_footer)
+    footer_head, ad_header, footer_tail = _split_footer(day_footer)
     if records:
         events_text = build_day_events(records)
     else:
@@ -285,7 +302,7 @@ async def _send_day_screen(message: Message, records) -> None:
     await _send_photo_then_text(
         message, "day_img", welcome_config["day_header"], events_text
     )
-    await _send_ads(message)
+    await _send_ads(message, ad_header)
     await _send_footer_tail(message, footer_tail)
 
 
@@ -293,7 +310,7 @@ async def _send_grouped_screen(
     message: Message, image_key: str, records, empty_text: str
 ) -> None:
     day_footer = welcome_config.get("day_footer", "")
-    footer_head, footer_tail = _split_footer(day_footer)
+    footer_head, ad_header, footer_tail = _split_footer(day_footer)
     if records:
         events_text = build_grouped_events(records)
     else:
@@ -303,7 +320,7 @@ async def _send_grouped_screen(
     await _send_photo_then_text(
         message, image_key, welcome_config["day_header"], events_text
     )
-    await _send_ads(message)
+    await _send_ads(message, ad_header)
     await _send_footer_tail(message, footer_tail)
 
 
