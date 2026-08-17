@@ -9,4 +9,4 @@ venv/
 credentials/
 
 # Runtime data
-subscribers.json
+stats.db

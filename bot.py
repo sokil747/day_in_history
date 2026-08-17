@@ -23,6 +23,7 @@ from google_sheets_service import (
     find_records_for_month,
     find_records_for_week,
 )
+import stats_store
 
 logging.basicConfig(level=logging.INFO)
 
@@ -45,41 +46,23 @@ TEXT_COMMANDS = {
 
 chat_responses: dict[int, list[int]] = {}
 
-SUBSCRIBERS_FILE = "subscribers.json"
-
-
-def _load_subscribers() -> set[int]:
-    try:
-        with open(SUBSCRIBERS_FILE, encoding="utf-8") as f:
-            return set(json.load(f))
-    except (FileNotFoundError, ValueError, TypeError):
-        return set()
-
-
-subscribers: set[int] = _load_subscribers()
-
-
-def _save_subscribers() -> None:
-    with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
-        json.dump(sorted(subscribers), f)
-
 
 def _track_subscriber(user_id: int | None) -> None:
-    if not user_id or user_id in subscribers:
-        return
-    subscribers.add(user_id)
-    _save_subscribers()
+    stats_store.record_interaction(user_id)
 
 
 def _admin_footer(user_id: int | None, user_name: str | None) -> str:
     if not user_id or user_id not in config.ADMIN_IDS:
         return ""
     name = html.escape(user_name or "Адміністратор")
-    count = len(subscribers)
+    stats = stats_store.get_stats()
+    t, w, total = stats["today"], stats["week"], stats["total"]
     return (
         f"\n\n———————————————\n"
         f"👋 Вітаємо, <b>{name}</b>!\n"
-        f"📊 Підписників бота: <b>{count}</b>"
+        f"📊 Сьогодні: <b>{t['all']}</b> (унік. <b>{t['unique']}</b>)\n"
+        f"📈 За тиждень: <b>{w['all']}</b> (унік. <b>{w['unique']}</b>)\n"
+        f"📚 Всього: <b>{total['all']}</b> (унік. <b>{total['unique']}</b>)"
     )
 
 
