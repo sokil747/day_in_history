@@ -56,13 +56,20 @@ def _admin_footer(user_id: int | None, user_name: str | None) -> str:
         return ""
     name = html.escape(user_name or "Адміністратор")
     stats = stats_store.get_stats()
+
+    def _line(label: str, period: dict) -> str:
+        return (
+            f"{label}: <b>{period['all']}</b> користувачів "
+            f"(унікальних - <b>{period['unique']}</b>)"
+        )
+
     t, w, total = stats["today"], stats["week"], stats["total"]
     return (
         f"\n\n———————————————\n"
         f"👋 Вітаємо, <b>{name}</b>!\n"
-        f"📊 Сьогодні: <b>{t['all']}</b> (унік. <b>{t['unique']}</b>)\n"
-        f"📈 За тиждень: <b>{w['all']}</b> (унік. <b>{w['unique']}</b>)\n"
-        f"📚 Всього: <b>{total['all']}</b> (унік. <b>{total['unique']}</b>)"
+        f"📊 {_line('Сьогодні', t)}\n"
+        f"📈 {_line('За тиждень', w)}\n"
+        f"📚 {_line('Всього', total)}"
     )
 
 
