@@ -103,10 +103,13 @@ async def _send_welcome(message: Message) -> None:
             FSInputFile(welcome_config["welcome_img"]),
             caption=caption,
             reply_markup=_welcome_keyboard(),
+            parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
         logging.warning("Failed to send intro image: %s", exc)
-        await message.answer(caption, reply_markup=_welcome_keyboard())
+        await message.answer(
+            caption, reply_markup=_welcome_keyboard(), parse_mode=ParseMode.HTML
+        )
 
 
 @dp.message(CommandStart())
@@ -121,11 +124,14 @@ async def on_start(callback: CallbackQuery) -> None:
             FSInputFile(welcome_config["about_img"]),
             caption=welcome_config["about_text"],
             reply_markup=_build_keyboard(),
+            parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
         logging.warning("Failed to send about image: %s", exc)
         await callback.message.answer(
-            welcome_config["about_text"], reply_markup=_build_keyboard()
+            welcome_config["about_text"],
+            reply_markup=_build_keyboard(),
+            parse_mode=ParseMode.HTML,
         )
     finally:
         await callback.answer()
@@ -151,10 +157,13 @@ async def _send_photo_then_text(
             FSInputFile(welcome_config[image_key]),
             caption=caption,
             reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
         logging.warning("Failed to send image %s: %s", image_key, exc)
-        sent = await message.answer(caption, reply_markup=reply_markup)
+        sent = await message.answer(
+            caption, reply_markup=reply_markup, parse_mode=ParseMode.HTML
+        )
     _remember(message.chat.id, sent)
     if body:
         _remember(message.chat.id, await message.answer(body, parse_mode=ParseMode.HTML))
