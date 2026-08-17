@@ -290,13 +290,24 @@ async def _send_footer_tail(message: Message, footer_tail: str) -> None:
         )
 
 
+def _empty_events_text() -> str:
+    footer = welcome_config.get(
+        "welcome_footer", "👉 Пульс індустрії тут:\n🔔 @InsiderKidsNews"
+    )
+    return (
+        "За цей період нічого цікавого не сталося, "
+        "але більше цікавої інформації ви можете знайти на нашому каналі:\n\n"
+        f"{footer}"
+    )
+
+
 async def _send_day_screen(message: Message, records) -> None:
     day_footer = welcome_config.get("day_footer", "")
     footer_head, ad_header, footer_tail = _split_footer(day_footer)
     if records:
         events_text = build_day_events(records)
     else:
-        events_text = "✅  Записів на сьогодні не знайдено."
+        events_text = _empty_events_text()
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
     await _send_photo_then_text(
@@ -307,14 +318,14 @@ async def _send_day_screen(message: Message, records) -> None:
 
 
 async def _send_grouped_screen(
-    message: Message, image_key: str, records, empty_text: str
+    message: Message, image_key: str, records
 ) -> None:
     day_footer = welcome_config.get("day_footer", "")
     footer_head, ad_header, footer_tail = _split_footer(day_footer)
     if records:
         events_text = build_grouped_events(records)
     else:
-        events_text = empty_text
+        events_text = _empty_events_text()
     if footer_head:
         events_text = f"{events_text}\n\n\n{footer_head}"
     await _send_photo_then_text(
@@ -341,9 +352,7 @@ async def on_week_events(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_week(_effective_today())
-        await _send_grouped_screen(
-            callback.message, "week_img", records, "Цього тижня записів не знайдено."
-        )
+        await _send_grouped_screen(callback.message, "week_img", records)
     finally:
         await callback.answer()
 
@@ -354,9 +363,7 @@ async def on_month_events(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_month(_effective_today())
-        await _send_grouped_screen(
-            callback.message, "month_img", records, "Цього місяця записів не знайдено."
-        )
+        await _send_grouped_screen(callback.message, "month_img", records)
     finally:
         await callback.answer()
 
@@ -373,14 +380,10 @@ async def on_text(message: Message) -> None:
         await _send_day_screen(message, records)
     elif text in TEXT_COMMANDS["week"]:
         records = find_records_for_week(_effective_today())
-        await _send_grouped_screen(
-            message, "week_img", records, "Цього тижня записів не знайдено."
-        )
+        await _send_grouped_screen(message, "week_img", records)
     elif text in TEXT_COMMANDS["month"]:
         records = find_records_for_month(_effective_today())
-        await _send_grouped_screen(
-            message, "month_img", records, "Цього місяця записів не знайдено."
-        )
+        await _send_grouped_screen(message, "month_img", records)
     else:
         await _send_welcome(message)
 
