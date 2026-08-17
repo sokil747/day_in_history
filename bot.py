@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 from datetime import date, datetime
@@ -43,6 +44,43 @@ TEXT_COMMANDS = {
 }
 
 chat_responses: dict[int, list[int]] = {}
+
+SUBSCRIBERS_FILE = "subscribers.json"
+
+
+def _load_subscribers() -> set[int]:
+    try:
+        with open(SUBSCRIBERS_FILE, encoding="utf-8") as f:
+            return set(json.load(f))
+    except (FileNotFoundError, ValueError, TypeError):
+        return set()
+
+
+subscribers: set[int] = _load_subscribers()
+
+
+def _save_subscribers() -> None:
+    with open(SUBSCRIBERS_FILE, "w", encoding="utf-8") as f:
+        json.dump(sorted(subscribers), f)
+
+
+def _track_subscriber(user_id: int | None) -> None:
+    if not user_id or user_id in subscribers:
+        return
+    subscribers.add(user_id)
+    _save_subscribers()
+
+
+def _admin_footer(user_id: int | None, user_name: str | None) -> str:
+    if not user_id or user_id not in config.ADMIN_IDS:
+        return ""
+    name = html.escape(user_name or "Адміністратор")
+    count = len(subscribers)
+    return (
+        f"\n\n———————————————\n"
+        f"👋 Вітаємо, <b>{name}</b>!\n"
+        f"📊 Підписників бота: <b>{count}</b>"
+    )
 
 
 def _effective_today() -> date:
@@ -95,8 +133,10 @@ def _welcome_keyboard() -> InlineKeyboardMarkup:
 
 
 async def _send_welcome(message: Message) -> None:
+    user = message.from_user
+    footer = _admin_footer(user.id if user else None, (user.full_name or user.username) if user else None)
     caption = (
-        f"{welcome_config['welcome_text']}\n\n{welcome_config['welcome_footer']}"
+        f"{welcome_config['welcome_text']}\n\n{welcome_config['welcome_footer']}{footer}"
     )
     try:
         await message.answer_photo(
@@ -114,11 +154,13 @@ async def _send_welcome(message: Message) -> None:
 
 @dp.message(CommandStart())
 async def cmd_start(message: Message) -> None:
+    _track_subscriber(message.from_user.id if message.from_user else None)
     await _send_welcome(message)
 
 
 @dp.callback_query(F.data == START_CALLBACK)
 async def on_start(callback: CallbackQuery) -> None:
+    _track_subscriber(callback.from_user.id if callback.from_user else None)
     try:
         await callback.message.answer_photo(
             FSInputFile(welcome_config["about_img"]),
@@ -209,6 +251,7 @@ async def _send_grouped_screen(
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
 async def on_day_in_history(callback: CallbackQuery) -> None:
+    _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_date(_effective_today())
@@ -219,6 +262,7 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
 
 @dp.callback_query(F.data == WEEK_EVENTS_CALLBACK)
 async def on_week_events(callback: CallbackQuery) -> None:
+    _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_week(_effective_today())
@@ -231,6 +275,7 @@ async def on_week_events(callback: CallbackQuery) -> None:
 
 @dp.callback_query(F.data == MONTH_EVENTS_CALLBACK)
 async def on_month_events(callback: CallbackQuery) -> None:
+    _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_month(_effective_today())
@@ -243,6 +288,7 @@ async def on_month_events(callback: CallbackQuery) -> None:
 
 @dp.message(F.text)
 async def on_text(message: Message) -> None:
+    _track_subscriber(message.from_user.id if message.from_user else None)
     if message.text.startswith("/"):
         return
 
