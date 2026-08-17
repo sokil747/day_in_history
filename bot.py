@@ -152,21 +152,31 @@ def _remember(chat_id: int, message: Message) -> None:
 async def _send_photo_then_text(
     message: Message, image_key: str, caption: str, body: str, reply_markup=None
 ) -> None:
+    full_caption = f"{caption}\n\n{body}" if body else caption
     try:
         sent = await message.answer_photo(
             FSInputFile(welcome_config[image_key]),
-            caption=caption,
+            caption=full_caption,
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
-        logging.warning("Failed to send image %s: %s", image_key, exc)
-        sent = await message.answer(
-            caption, reply_markup=reply_markup, parse_mode=ParseMode.HTML
-        )
+        logging.warning("Failed to send combined caption %s: %s", image_key, exc)
+        try:
+            sent = await message.answer_photo(
+                FSInputFile(welcome_config[image_key]),
+                caption=caption,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+            )
+            _remember(message.chat.id, sent)
+            sent = await message.answer(body, parse_mode=ParseMode.HTML)
+        except Exception as exc2:
+            logging.warning("Failed to send image %s: %s", image_key, exc2)
+            sent = await message.answer(
+                full_caption, reply_markup=reply_markup, parse_mode=ParseMode.HTML
+            )
     _remember(message.chat.id, sent)
-    if body:
-        _remember(message.chat.id, await message.answer(body, parse_mode=ParseMode.HTML))
 
 
 async def _send_day_screen(message: Message, records) -> None:
