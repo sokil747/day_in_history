@@ -15,6 +15,7 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    LinkPreviewOptions,
     Message,
 )
 
@@ -189,6 +190,8 @@ def _remember(chat_id: int, message: Message) -> None:
 MAX_CAPTION = 1000
 MAX_MESSAGE = 4000
 
+NO_LINK_PREVIEW = LinkPreviewOptions(is_disabled=True)
+
 
 def _chunk_text(text: str, limit: int) -> list[str]:
     lines = text.split("\n")
@@ -243,6 +246,7 @@ async def _send_photo_then_text(
                 caption=full_caption,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
+                link_preview_options=NO_LINK_PREVIEW,
             )
             _remember(message.chat.id, sent)
             return
@@ -251,10 +255,16 @@ async def _send_photo_then_text(
             caption=caption,
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML,
+            link_preview_options=NO_LINK_PREVIEW,
         )
         _remember(message.chat.id, sent)
         for piece in _chunk_html(body, MAX_MESSAGE):
-            _remember(message.chat.id, await message.answer(piece, parse_mode=ParseMode.HTML))
+            _remember(
+                message.chat.id,
+                await message.answer(
+                    piece, parse_mode=ParseMode.HTML, link_preview_options=NO_LINK_PREVIEW
+                ),
+            )
     except Exception as exc:
         logging.warning("Failed to send screen %s: %s", image_key, exc)
         try:
@@ -262,6 +272,7 @@ async def _send_photo_then_text(
                 full_caption[:MAX_MESSAGE],
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
+                link_preview_options=NO_LINK_PREVIEW,
             )
             _remember(message.chat.id, sent)
         except Exception as exc2:
@@ -326,11 +337,18 @@ async def _send_ads(message: Message, ad_header: str) -> None:
             logging.warning("Failed to download logo %s: %s", ad.logo, exc)
         try:
             sent = await message.answer_photo(
-                photo=photo, caption=caption, parse_mode=ParseMode.HTML
+                photo=photo,
+                caption=caption,
+                parse_mode=ParseMode.HTML,
+                link_preview_options=NO_LINK_PREVIEW,
             )
         except Exception as exc:
             logging.warning("Failed to send ad photo %s: %s", photo, exc)
-            sent = await message.answer(caption, parse_mode=ParseMode.HTML)
+            sent = await message.answer(
+                caption,
+                parse_mode=ParseMode.HTML,
+                link_preview_options=NO_LINK_PREVIEW,
+            )
         _remember(message.chat.id, sent)
 
 
@@ -338,7 +356,11 @@ async def _send_footer_tail(message: Message, footer_tail: str) -> None:
     if footer_tail:
         _remember(
             message.chat.id,
-            await message.answer(footer_tail, parse_mode=ParseMode.HTML),
+            await message.answer(
+                footer_tail,
+                parse_mode=ParseMode.HTML,
+                link_preview_options=NO_LINK_PREVIEW,
+            ),
         )
 
 
