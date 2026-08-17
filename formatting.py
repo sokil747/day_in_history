@@ -39,7 +39,7 @@ def _event_line(record: HistoryRecord, with_source: bool = False) -> str:
 
 
 def _date_line(month: int, day: int) -> str:
-    return f"✅  {day} {MONTH_GENITIVE[month - 1]}"
+    return f"✅  <b>{day} {MONTH_GENITIVE[month - 1]}</b>"
 
 
 def build_day_events(records: list[HistoryRecord]) -> str:
