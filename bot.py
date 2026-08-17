@@ -290,14 +290,19 @@ async def _send_footer_tail(message: Message, footer_tail: str) -> None:
         )
 
 
-def _empty_events_text() -> str:
-    footer = welcome_config.get(
-        "welcome_footer", "👉 Пульс індустрії тут:\n🔔 @InsiderKidsNews"
+def _channel_footer() -> str:
+    return welcome_config.get(
+        "welcome_footer",
+        "👉 <b>Пульс індустрії тут:</b>\n"
+        '🔔 <a href="https://t.me/InsiderKidsNews">@InsiderKidsNews</a>',
     )
+
+
+def _empty_events_text() -> str:
     return (
         "За цей період нічого цікавого не сталося, "
         "але більше цікавої інформації ви можете знайти на нашому каналі:\n\n"
-        f"{footer}"
+        f"{_channel_footer()}"
     )
 
 
