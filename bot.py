@@ -186,34 +186,86 @@ def _remember(chat_id: int, message: Message) -> None:
     chat_responses.setdefault(chat_id, []).append(message.message_id)
 
 
+MAX_CAPTION = 1000
+MAX_MESSAGE = 4000
+
+
+def _chunk_text(text: str, limit: int) -> list[str]:
+    lines = text.split("\n")
+    chunks: list[str] = []
+    current = ""
+    for line in lines:
+        candidate = f"{current}\n{line}" if current else line
+        if len(candidate) <= limit:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = ""
+        while len(line) > limit:
+            chunks.append(line[:limit])
+            line = line[limit:]
+        current = line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def _chunk_html(text: str, limit: int) -> list[str]:
+    chunks = _chunk_text(text, limit)
+    if len(chunks) == 1:
+        return chunks
+    result: list[str] = []
+    open_tags: list[str] = []
+    for part in chunks:
+        if open_tags:
+            part = "".join(open_tags) + part
+        result.append(part)
+        open_tags = re.findall(r"<([a-z][a-z0-9]*)(?:\s[^>]*)?>", part)
+        open_tags = [
+            t
+            for t in open_tags
+            if part.count(f"<{t}>") > part.count(f"</{t}>")
+        ]
+        for tag in reversed(open_tags):
+            result[-1] = f"{result[-1]}</{tag}>"
+    return result
+
+
 async def _send_photo_then_text(
     message: Message, image_key: str, caption: str, body: str, reply_markup=None
 ) -> None:
     full_caption = f"{caption}\n\n{body}" if body else caption
     try:
-        sent = await message.answer_photo(
-            FSInputFile(welcome_config[image_key]),
-            caption=full_caption,
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML,
-        )
-    except Exception as exc:
-        logging.warning("Failed to send combined caption %s: %s", image_key, exc)
-        try:
+        if len(full_caption) <= MAX_CAPTION:
             sent = await message.answer_photo(
                 FSInputFile(welcome_config[image_key]),
-                caption=caption,
+                caption=full_caption,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
             )
             _remember(message.chat.id, sent)
-            sent = await message.answer(body, parse_mode=ParseMode.HTML)
-        except Exception as exc2:
-            logging.warning("Failed to send image %s: %s", image_key, exc2)
+            return
+        sent = await message.answer_photo(
+            FSInputFile(welcome_config[image_key]),
+            caption=caption,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+        )
+        _remember(message.chat.id, sent)
+        for piece in _chunk_html(body, MAX_MESSAGE):
+            _remember(message.chat.id, await message.answer(piece, parse_mode=ParseMode.HTML))
+    except Exception as exc:
+        logging.warning("Failed to send screen %s: %s", image_key, exc)
+        try:
             sent = await message.answer(
-                full_caption, reply_markup=reply_markup, parse_mode=ParseMode.HTML
+                full_caption[:MAX_MESSAGE],
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
             )
-    _remember(message.chat.id, sent)
+            _remember(message.chat.id, sent)
+        except Exception as exc2:
+            logging.warning("Failed to send plain text %s: %s", image_key, exc2)
 
 
 def _drive_direct_url(url: str) -> str:
