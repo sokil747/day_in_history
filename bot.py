@@ -313,13 +313,10 @@ async def _send_ads(message: Message, ad_header: str) -> None:
         return
     if not ads:
         return
-    if ad_header:
-        _remember(
-            message.chat.id,
-            await message.answer(ad_header, parse_mode=ParseMode.HTML),
-        )
     for i, ad in enumerate(ads):
         caption = _build_ad_caption(ad, with_separator=i > 0)
+        if i == 0 and ad_header:
+            caption = f"{ad_header}\n\n{caption}"
         photo = _drive_direct_url(ad.logo)
         try:
             content = download_ad_logo(ad.logo)
