@@ -11,7 +11,7 @@
   "day_img": "assets/day.jpg",
   "day_header": "📆 <b>ІСТОРИЧНИЙ КАЛЕЙДОСКОП</b>\n\n🌍 <b>Знакові події, бренди та винаходи, що змінили світ дитинства ✨</b>",
   "day_footer": "👉 <b>Більше:</b> @InsiderKidsNews\n.......\n\n📍<b>РЕКЛАМА :</b>\n1.МІСЦЕ ДЛЯ ФОТО 16:9\n2.МІСЦЕ ДЛЯ ТЕКСТУ 100 ЗНАКІВ\n3.МІСЦЕ ДЛЯ ПОСИЛАННЯ НА САЙТ РЕКЛАМОДАВЦЯ",
-  "test_mode": true,
+  "test_mode": false,
   "test_day": "03/06/2026",
   "week_img": "assets/week.jpg",
   "month_img": "assets/month.jpg"
