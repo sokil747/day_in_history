@@ -2,6 +2,7 @@ import asyncio
 import html
 import json
 import logging
+import re
 from datetime import date, datetime
 
 from aiogram import Bot, Dispatcher, F
@@ -19,6 +20,8 @@ from aiogram.types import (
 import config
 from formatting import build_day_events, build_grouped_events
 from google_sheets_service import (
+    AdRecord,
+    active_ads_on,
     find_records_for_date,
     find_records_for_month,
     find_records_for_week,
@@ -211,32 +214,97 @@ async def _send_photo_then_text(
     _remember(message.chat.id, sent)
 
 
+def _drive_direct_url(url: str) -> str:
+    match = re.search(r"/file/d/([A-Za-z0-9_-]+)", url or "")
+    if match:
+        return f"https://drive.google.com/uc?export=view&id={match.group(1)}"
+    return url
+
+
+def _build_ad_caption(ad: AdRecord, with_separator: bool) -> str:
+    parts = []
+    if with_separator:
+        parts.append("──────────────")
+    if ad.text:
+        parts.append(ad.text)
+    if ad.link:
+        parts.append(
+            f'🔗 <a href="{html.escape(ad.link, quote=True)}">Детальніше</a>'
+        )
+    return "\n\n".join(parts)
+
+
+def _split_footer(footer: str) -> tuple[str, str]:
+    marker = "<b>РЕКЛАМА :</b>"
+    idx = footer.find(marker)
+    if idx == -1:
+        return footer, ""
+    head = footer[: idx + len(marker)]
+    tail = footer[idx + len(marker) :]
+    if tail.startswith("\n"):
+        tail = tail[1:]
+    return head, tail
+
+
+async def _send_ads(message: Message) -> None:
+    try:
+        ads = active_ads_on(_effective_today())
+    except Exception as exc:
+        logging.warning("Failed to load advertisements: %s", exc)
+        return
+    for i, ad in enumerate(ads):
+        caption = _build_ad_caption(ad, with_separator=i > 0)
+        photo_url = _drive_direct_url(ad.logo)
+        try:
+            sent = await message.answer_photo(
+                photo=photo_url, caption=caption, parse_mode=ParseMode.HTML
+            )
+        except Exception as exc:
+            logging.warning("Failed to send ad photo %s: %s", photo_url, exc)
+            sent = await message.answer(caption, parse_mode=ParseMode.HTML)
+        _remember(message.chat.id, sent)
+
+
+async def _send_footer_tail(message: Message, footer_tail: str) -> None:
+    if footer_tail:
+        _remember(
+            message.chat.id,
+            await message.answer(footer_tail, parse_mode=ParseMode.HTML),
+        )
+
+
 async def _send_day_screen(message: Message, records) -> None:
     day_footer = welcome_config.get("day_footer", "")
+    footer_head, footer_tail = _split_footer(day_footer)
     if records:
         events_text = build_day_events(records)
     else:
         events_text = "✅  Записів на сьогодні не знайдено."
-    if day_footer:
-        events_text = f"{events_text}\n\n{day_footer}"
+    if footer_head:
+        events_text = f"{events_text}\n\n{footer_head}"
     await _send_photo_then_text(
         message, "day_img", welcome_config["day_header"], events_text
     )
+    await _send_ads(message)
+    await _send_footer_tail(message, footer_tail)
 
 
 async def _send_grouped_screen(
     message: Message, image_key: str, records, empty_text: str
 ) -> None:
     day_footer = welcome_config.get("day_footer", "")
+    footer_head, footer_tail = _split_footer(day_footer)
     if records:
         events_text = build_grouped_events(records)
     else:
         events_text = empty_text
-    if day_footer:
-        events_text = f"{events_text}\n\n\n{day_footer}"
+    if footer_head:
+        events_text = f"{events_text}\n\n\n{footer_head}"
     await _send_photo_then_text(
         message, image_key, welcome_config["day_header"], events_text
     )
+    await _send_ads(message)
+    await _send_footer_tail(message, footer_tail)
 
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)

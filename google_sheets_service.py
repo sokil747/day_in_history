@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import html
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 import gspread
 from google.oauth2.service_account import Credentials
@@ -23,6 +24,15 @@ class HistoryRecord:
     category: str
     text: str
     source: str
+
+
+@dataclass
+class AdRecord:
+    logo: str
+    text: str
+    link: str
+    start_date: str
+    finish_date: str
 
 
 class SheetRecordNotFound(Exception):
@@ -109,3 +119,67 @@ def find_records_for_week(anchor: date) -> list[HistoryRecord]:
 def find_records_for_month(anchor: date) -> list[HistoryRecord]:
     records = [r for r in get_records() if r.month == anchor.month]
     return sorted(records, key=lambda r: (r.day, r.order))
+
+
+def _parse_date(value: str) -> date | None:
+    value = (value or "").strip()
+    if not value:
+        return None
+    lowered = value.lower()
+    if lowered == "unlimited":
+        return None
+    for fmt in ("%d/%m/%Y", "%d.%m.%Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(value, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def get_advertisements() -> list[AdRecord]:
+    client = get_client()
+    spreadsheet = client.open_by_key(config.GOOGLE_SHEET_ID)
+    worksheet = None
+    for ws in spreadsheet.worksheets():
+        if ws.id == 971995155 or (ws.title and ws.title.lower() == "advertisements"):
+            worksheet = ws
+            break
+    if worksheet is None:
+        return []
+    rows = worksheet.get_all_values()
+    if not rows:
+        return []
+    headers = [str(h).strip().lower() for h in rows[0]]
+    ads = []
+    for raw_row in rows[1:]:
+        if not raw_row or not raw_row[0].strip():
+            continue
+        data = dict(zip(headers, raw_row))
+        text = data.get("text", "").strip()
+        link = data.get("link", "").strip()
+        logo = data.get("logo", "").strip()
+        if not (text or link or logo):
+            continue
+        ads.append(
+            AdRecord(
+                logo=logo,
+                text=html.unescape(text),
+                link=link,
+                start_date=data.get("start_date", "").strip(),
+                finish_date=data.get("finish_date", "").strip(),
+            )
+        )
+    return ads
+
+
+def active_ads_on(target: date) -> list[AdRecord]:
+    ads = []
+    for ad in get_advertisements():
+        start = _parse_date(ad.start_date)
+        finish = _parse_date(ad.finish_date)
+        if start is not None and target < start:
+            continue
+        if finish is not None and target > finish:
+            continue
+        ads.append(ad)
+    return ads
