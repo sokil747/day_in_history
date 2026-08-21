@@ -96,6 +96,12 @@ def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
+                text=welcome_config["random_day_text"],
+                callback_data=RANDOM_DAY_CALLBACK,
+            )
+        ],
+        [
+            InlineKeyboardButton(
                 text=welcome_config["day_button_text"],
                 callback_data=DAY_IN_HISTORY_CALLBACK,
             )
@@ -118,14 +124,6 @@ def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
                 ],
             ]
         )
-    rows.append(
-        [
-            InlineKeyboardButton(
-                text=welcome_config["random_day_text"],
-                callback_data=RANDOM_DAY_CALLBACK,
-            )
-        ]
-    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
