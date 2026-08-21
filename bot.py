@@ -471,7 +471,7 @@ async def on_random_day(callback: CallbackQuery) -> None:
             continue
     else:
         records = find_records_for_month(_effective_today())
-    await _send_grouped_screen(callback.message, "month_img", records)
+    await _send_grouped_screen(callback.message, "random_date", records)
     await callback.answer()
 
 

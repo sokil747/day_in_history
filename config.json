@@ -15,5 +15,6 @@
   "test_mode": false,
   "test_day": "03/06/2026",
   "week_img": "assets/week.jpg",
-  "month_img": "assets/month.jpg"
+  "month_img": "assets/month.jpg",
+  "random_date": "assets/random_date.jpg"
 }
