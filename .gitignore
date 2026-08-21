@@ -10,3 +10,5 @@ credentials/
 
 # Runtime data
 stats.db
+db.sqlite3
+db.sqlite3

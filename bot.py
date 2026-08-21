@@ -22,14 +22,14 @@ from aiogram.types import (
 
 import config
 from formatting import build_day_events, build_grouped_events
-from google_sheets_service import (
-    AdRecord,
+from db_service import (
     active_ads_on,
-    download_ad_logo,
     find_records_for_date,
     find_records_for_month,
     find_records_for_week,
+    is_premium,
 )
+from google_sheets_service import AdRecord, download_ad_logo
 import stats_store
 
 logging.basicConfig(level=logging.INFO)
@@ -92,34 +92,47 @@ def _effective_today() -> date:
     return date.today()
 
 
-def _build_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=welcome_config["day_button_text"],
+                callback_data=DAY_IN_HISTORY_CALLBACK,
+            )
+        ],
+    ]
+    if is_premium(user_id):
+        rows.extend(
             [
-                InlineKeyboardButton(
-                    text=welcome_config["day_button_text"],
-                    callback_data=DAY_IN_HISTORY_CALLBACK,
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=welcome_config["week_button_text"],
-                    callback_data=WEEK_EVENTS_CALLBACK,
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=welcome_config["month_button_text"],
-                    callback_data=MONTH_EVENTS_CALLBACK,
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=welcome_config["random_day_text"],
-                    callback_data=RANDOM_DAY_CALLBACK,
-                )
-            ],
+                [
+                    InlineKeyboardButton(
+                        text=welcome_config["week_button_text"],
+                        callback_data=WEEK_EVENTS_CALLBACK,
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text=welcome_config["month_button_text"],
+                        callback_data=MONTH_EVENTS_CALLBACK,
+                    )
+                ],
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=welcome_config["random_day_text"],
+                callback_data=RANDOM_DAY_CALLBACK,
+            )
         ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _premium_required_text() -> str:
+    return (
+        "🔒 Ця функція доступна лише для <b>преміум</b> користувачів.\n"
+        "Зверніться до адміністратора, щоб отримати доступ."
     )
 
 
@@ -165,18 +178,19 @@ async def cmd_start(message: Message) -> None:
 @dp.callback_query(F.data == START_CALLBACK)
 async def on_start(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
+    uid = callback.from_user.id if callback.from_user else None
     try:
         await callback.message.answer_photo(
             FSInputFile(welcome_config["about_img"]),
             caption=welcome_config["about_text"],
-            reply_markup=_build_keyboard(),
+            reply_markup=_build_keyboard(uid),
             parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
         logging.warning("Failed to send about image: %s", exc)
         await callback.message.answer(
             welcome_config["about_text"],
-            reply_markup=_build_keyboard(),
+            reply_markup=_build_keyboard(uid),
             parse_mode=ParseMode.HTML,
         )
     finally:
@@ -436,6 +450,10 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
 @dp.callback_query(F.data == WEEK_EVENTS_CALLBACK)
 async def on_week_events(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
+    uid = callback.from_user.id if callback.from_user else None
+    if not is_premium(uid):
+        await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
+        return
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_week(_effective_today())
@@ -447,6 +465,10 @@ async def on_week_events(callback: CallbackQuery) -> None:
 @dp.callback_query(F.data == MONTH_EVENTS_CALLBACK)
 async def on_month_events(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
+    uid = callback.from_user.id if callback.from_user else None
+    if not is_premium(uid):
+        await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
+        return
     await _clear_previous(callback.message.chat.id)
     try:
         records = find_records_for_month(_effective_today())
@@ -486,9 +508,15 @@ async def on_text(message: Message) -> None:
         records = find_records_for_date(_effective_today())
         await _send_day_screen(message, records)
     elif text in TEXT_COMMANDS["week"]:
+        if not is_premium(message.from_user.id if message.from_user else None):
+            await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
+            return
         records = find_records_for_week(_effective_today())
         await _send_grouped_screen(message, "week_img", records)
     elif text in TEXT_COMMANDS["month"]:
+        if not is_premium(message.from_user.id if message.from_user else None):
+            await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
+            return
         records = find_records_for_month(_effective_today())
         await _send_grouped_screen(message, "month_img", records)
     else:
