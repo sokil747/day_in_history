@@ -3,6 +3,7 @@ import html
 import json
 import logging
 import re
+import random
 from datetime import date, datetime
 
 from aiogram import Bot, Dispatcher, F
@@ -43,6 +44,7 @@ START_CALLBACK = "start"
 DAY_IN_HISTORY_CALLBACK = "day_in_history"
 WEEK_EVENTS_CALLBACK = "week_events"
 MONTH_EVENTS_CALLBACK = "month_events"
+RANDOM_DAY_CALLBACK = "random_day"
 
 TEXT_COMMANDS = {
     "day": {"day in history", "день в історії", "день"},
@@ -109,6 +111,12 @@ def _build_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(
                     text=welcome_config["month_button_text"],
                     callback_data=MONTH_EVENTS_CALLBACK,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=welcome_config["random_day_text"],
+                    callback_data=RANDOM_DAY_CALLBACK,
                 )
             ],
         ]
@@ -445,6 +453,26 @@ async def on_month_events(callback: CallbackQuery) -> None:
         await _send_grouped_screen(callback.message, "month_img", records)
     finally:
         await callback.answer()
+
+
+@dp.callback_query(F.data == RANDOM_DAY_CALLBACK)
+async def on_random_day(callback: CallbackQuery) -> None:
+    _track_subscriber(callback.from_user.id if callback.from_user else None)
+    await _clear_previous(callback.message.chat.id)
+    import random
+    for _ in range(10):
+        month = random.randint(1, 12)
+        day = random.randint(1, 31)
+        try:
+            records = find_records_for_date(date(2026, month, day))
+            if records:
+                break
+        except Exception:
+            continue
+    else:
+        records = find_records_for_month(_effective_today())
+    await _send_grouped_screen(callback.message, "month_img", records)
+    await callback.answer()
 
 
 @dp.message(F.text)
