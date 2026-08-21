@@ -31,6 +31,7 @@ ALLOWED_HOSTS = ['*']
 # Application definition
 
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -39,6 +40,13 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'core',
 ]
+
+JAZZMIN_SETTINGS = {
+    "site_title": "Day in History Admin",
+    "site_header": "Day in History",
+    "welcome_sign": "Вітаємо в адмінці",
+    "show_sidebar": True,
+}
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
