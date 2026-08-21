@@ -59,5 +59,5 @@ def build_grouped_events(records: list[HistoryRecord]) -> str:
     blocks = []
     for month, day in sorted(groups):
         body = "\n".join(_event_line(r, with_source=True) for r in groups[(month, day)])
-        blocks.append(f"{_date_line(month, day)}\n\n\n{body}")
-    return "\n\n\n".join(blocks)
+        blocks.append(f"{_date_line(month, day)}\n\n{body}")
+    return "\n\n".join(blocks)
