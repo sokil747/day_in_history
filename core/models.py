@@ -20,7 +20,13 @@ class Event(models.Model):
 
 
 class Advertisement(models.Model):
-    logo = models.URLField(max_length=2048, blank=True, help_text="Google Drive link or direct image URL")
+    logo = models.URLField(max_length=2048, blank=True, help_text="Google Drive link or direct image URL (source)")
+    logo_image = models.ImageField(
+        upload_to="ads/",
+        blank=True,
+        null=True,
+        help_text="Uploaded image or copy from Google Drive — served from VPS. Preferred over URL.",
+    )
     text = models.TextField()
     link = models.URLField(max_length=2048, blank=True)
     start_date = models.CharField(max_length=32, blank=True, help_text="DD/MM/YYYY or empty")

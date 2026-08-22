@@ -1,5 +1,6 @@
 from django.contrib import admin, messages
 from django.core.management import call_command
+from django.utils.html import mark_safe
 
 from .models import Advertisement, BotSettings, Event, PremiumUser
 
@@ -26,20 +27,31 @@ class EventAdmin(admin.ModelAdmin):
 
 @admin.register(Advertisement)
 class AdvertisementAdmin(admin.ModelAdmin):
-    list_display = ("id", "short_text", "link", "start_date", "finish_date")
+    list_display = ("id", "short_text", "logo_preview", "link", "start_date", "finish_date")
+    list_display_links = ("id", "short_text")
     search_fields = ("text", "link")
     list_per_page = 20
+    readonly_fields = ("logo_preview",)
+    fields = ("logo", "logo_image", "logo_preview", "text", "link", "start_date", "finish_date")
 
     @admin.display(description="Text")
     def short_text(self, obj):
         return obj.text[:80]
 
+    @admin.display(description="Image")
+    def logo_preview(self, obj):
+        if obj.logo_image:
+            return mark_safe(f'<img src="{obj.logo_image.url}" style="max-height:80px;max-width:160px;" />')
+        if obj.logo:
+            return mark_safe(f'<a href="{obj.logo}" target="_blank">URL</a>')
+        return "—"
+
     actions = ["sync_ads_from_sheets"]
 
-    @admin.action(description="Sync ads from Google Sheet")
+    @admin.action(description="Sync ads from Google Sheet (copies images to VPS)")
     def sync_ads_from_sheets(self, request, queryset):
         call_command("sync_from_sheets")
-        self.message_user(request, "Advertisements synced from Google Sheet.", messages.SUCCESS)
+        self.message_user(request, "Advertisements synced from Google Sheet (images copied to VPS).", messages.SUCCESS)
 
 
 @admin.register(PremiumUser)

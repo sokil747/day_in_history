@@ -358,13 +358,35 @@ async def _send_ads(message: Message, ad_header: str) -> None:
         caption = _build_ad_caption(ad, with_separator=i > 0)
         if i == 0 and ad_header:
             caption = f"{ad_header}\n\n{caption}"
-        photo = _drive_direct_url(ad.logo)
-        try:
-            content = download_ad_logo(ad.logo)
-            if content:
-                photo = BufferedInputFile(content, filename="ad.jpg")
-        except Exception as exc:
-            logging.warning("Failed to download logo %s: %s", ad.logo, exc)
+        # Prefer local image copied to VPS (media/ads/) — fallback to URL/download
+        photo = None
+        local_path = getattr(ad, "logo_image_path", "") or getattr(ad, "logo_image", "")
+        if local_path:
+            # logo_image_path is absolute, logo_image is MEDIA-relative
+            import os
+            from pathlib import Path
+
+            candidates = [local_path]
+            if getattr(ad, "logo_image", ""):
+                candidates.append(str(Path("media") / ad.logo_image))  # relative
+                try:
+                    from django.conf import settings
+
+                    candidates.append(str(Path(settings.MEDIA_ROOT) / ad.logo_image))
+                except Exception:
+                    pass
+            for cand in candidates:
+                if cand and os.path.exists(cand):
+                    photo = FSInputFile(cand)
+                    break
+        if photo is None:
+            photo = _drive_direct_url(ad.logo)
+            try:
+                content = download_ad_logo(ad.logo)
+                if content:
+                    photo = BufferedInputFile(content, filename="ad.jpg")
+            except Exception as exc:
+                logging.warning("Failed to download logo %s: %s", ad.logo, exc)
         try:
             sent = await message.answer_photo(
                 photo=photo,

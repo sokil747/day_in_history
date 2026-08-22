@@ -40,6 +40,8 @@ class AdRecord:
     link: str
     start_date: str
     finish_date: str
+    logo_image: str = ""  # local relative path e.g. ads/ad_1.jpg
+    logo_image_path: str = ""  # absolute filesystem path if available
 
 
 class SheetRecordNotFound(Exception):

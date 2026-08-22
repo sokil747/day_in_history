@@ -57,10 +57,32 @@ def find_records_for_month(anchor: date) -> list[HistoryRecord]:
 
 
 def get_advertisements() -> list[AdRecord]:
-    return [
-        AdRecord(logo=a.logo, text=a.text, link=a.link, start_date=a.start_date, finish_date=a.finish_date)
-        for a in Advertisement.objects.all()
-    ]
+    ads = []
+    for a in Advertisement.objects.all():
+        logo_local = ""
+        logo_path = ""
+        try:
+            if a.logo_image and a.logo_image.name:
+                logo_local = a.logo_image.name  # e.g. ads/ad_1.jpg
+                # filesystem path
+                try:
+                    logo_path = a.logo_image.path
+                except Exception:
+                    logo_path = ""
+        except Exception:
+            pass
+        ads.append(
+            AdRecord(
+                logo=a.logo,
+                text=a.text,
+                link=a.link,
+                start_date=a.start_date,
+                finish_date=a.finish_date,
+                logo_image=logo_local,
+                logo_image_path=logo_path,
+            )
+        )
+    return ads
 
 
 def active_ads_on(target: date) -> list[AdRecord]:
