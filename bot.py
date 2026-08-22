@@ -23,7 +23,15 @@ from aiogram.types import (
 import config
 from formatting import build_day_events, build_grouped_events
 from db_service import (
+    a_active_ads_on,
+    a_can_access_month,
+    a_can_access_week,
+    a_find_records_for_date,
+    a_find_records_for_month,
+    a_find_records_for_week,
     active_ads_on,
+    can_access_month,
+    can_access_week,
     find_records_for_date,
     find_records_for_month,
     find_records_for_week,
@@ -92,7 +100,7 @@ def _effective_today() -> date:
     return date.today()
 
 
-def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
+async def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -107,21 +115,22 @@ def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
             )
         ],
     ]
-    if is_premium(user_id):
-        rows.extend(
+    if await a_can_access_week(user_id):
+        rows.append(
             [
-                [
-                    InlineKeyboardButton(
-                        text=welcome_config["week_button_text"],
-                        callback_data=WEEK_EVENTS_CALLBACK,
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text=welcome_config["month_button_text"],
-                        callback_data=MONTH_EVENTS_CALLBACK,
-                    )
-                ],
+                InlineKeyboardButton(
+                    text=welcome_config["week_button_text"],
+                    callback_data=WEEK_EVENTS_CALLBACK,
+                )
+            ]
+        )
+    if await a_can_access_month(user_id):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=welcome_config["month_button_text"],
+                    callback_data=MONTH_EVENTS_CALLBACK,
+                )
             ]
         )
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -177,18 +186,19 @@ async def cmd_start(message: Message) -> None:
 async def on_start(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
+    kb = await _build_keyboard(uid)
     try:
         await callback.message.answer_photo(
             FSInputFile(welcome_config["about_img"]),
             caption=welcome_config["about_text"],
-            reply_markup=_build_keyboard(uid),
+            reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
         logging.warning("Failed to send about image: %s", exc)
         await callback.message.answer(
             welcome_config["about_text"],
-            reply_markup=_build_keyboard(uid),
+            reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
     finally:
@@ -338,7 +348,7 @@ def _split_footer(footer: str) -> tuple[str, str, str]:
 
 async def _send_ads(message: Message, ad_header: str) -> None:
     try:
-        ads = active_ads_on(_effective_today())
+        ads = await a_active_ads_on(_effective_today())
     except Exception as exc:
         logging.warning("Failed to load advertisements: %s", exc)
         return
@@ -439,7 +449,7 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
-        records = find_records_for_date(_effective_today())
+        records = await a_find_records_for_date(_effective_today())
         await _send_day_screen(callback.message, records)
     finally:
         await callback.answer()
@@ -449,12 +459,12 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
 async def on_week_events(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
-    if not is_premium(uid):
+    if not await a_can_access_week(uid):
         await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
         return
     await _clear_previous(callback.message.chat.id)
     try:
-        records = find_records_for_week(_effective_today())
+        records = await a_find_records_for_week(_effective_today())
         await _send_grouped_screen(callback.message, "week_img", records)
     finally:
         await callback.answer()
@@ -464,12 +474,12 @@ async def on_week_events(callback: CallbackQuery) -> None:
 async def on_month_events(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
-    if not is_premium(uid):
+    if not await a_can_access_month(uid):
         await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
         return
     await _clear_previous(callback.message.chat.id)
     try:
-        records = find_records_for_month(_effective_today())
+        records = await a_find_records_for_month(_effective_today())
         await _send_grouped_screen(callback.message, "month_img", records)
     finally:
         await callback.answer()
@@ -484,13 +494,13 @@ async def on_random_day(callback: CallbackQuery) -> None:
         month = random.randint(1, 12)
         day = random.randint(1, 31)
         try:
-            records = find_records_for_date(date(2026, month, day))
+            records = await a_find_records_for_date(date(2026, month, day))
             if records:
                 break
         except Exception:
             continue
     else:
-        records = find_records_for_month(_effective_today())
+        records = await a_find_records_for_month(_effective_today())
     await _send_grouped_screen(callback.message, "random_date", records)
     await callback.answer()
 
@@ -503,19 +513,19 @@ async def on_text(message: Message) -> None:
 
     text = message.text.strip().lower()
     if text in TEXT_COMMANDS["day"]:
-        records = find_records_for_date(_effective_today())
+        records = await a_find_records_for_date(_effective_today())
         await _send_day_screen(message, records)
     elif text in TEXT_COMMANDS["week"]:
-        if not is_premium(message.from_user.id if message.from_user else None):
+        if not await a_can_access_week(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
-        records = find_records_for_week(_effective_today())
+        records = await a_find_records_for_week(_effective_today())
         await _send_grouped_screen(message, "week_img", records)
     elif text in TEXT_COMMANDS["month"]:
-        if not is_premium(message.from_user.id if message.from_user else None):
+        if not await a_can_access_month(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
-        records = find_records_for_month(_effective_today())
+        records = await a_find_records_for_month(_effective_today())
         await _send_grouped_screen(message, "month_img", records)
     else:
         await _send_welcome(message)

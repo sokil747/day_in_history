@@ -84,3 +84,65 @@ def is_premium(user_id: int | None) -> bool:
     if user_id in getattr(config, "ADMIN_IDS", []):
         return True
     return PremiumUser.objects.filter(telegram_id=user_id).exists()
+
+
+def _get_bot_settings():
+    try:
+        from core.models import BotSettings
+
+        return BotSettings.get_solo()
+    except Exception:
+        return None
+
+
+def week_requires_premium() -> bool:
+    s = _get_bot_settings()
+    return s.week_requires_premium if s else True
+
+
+def month_requires_premium() -> bool:
+    s = _get_bot_settings()
+    return s.month_requires_premium if s else True
+
+
+def can_access_week(user_id: int | None) -> bool:
+    if not week_requires_premium():
+        return True
+    return is_premium(user_id)
+
+
+def can_access_month(user_id: int | None) -> bool:
+    if not month_requires_premium():
+        return True
+    return is_premium(user_id)
+
+
+# Async wrappers for use in aiogram (async) handlers — avoids
+# django.core.exceptions.SynchronousOnlyOperation
+try:
+    from asgiref.sync import sync_to_async as _sync_to_async
+except ImportError:  # fallback if asgiref missing
+    _sync_to_async = None
+
+if _sync_to_async:
+    a_find_records_for_date = _sync_to_async(find_records_for_date)
+    a_find_records_for_week = _sync_to_async(find_records_for_week)
+    a_find_records_for_month = _sync_to_async(find_records_for_month)
+    a_active_ads_on = _sync_to_async(active_ads_on)
+    a_is_premium = _sync_to_async(is_premium)
+    a_can_access_week = _sync_to_async(can_access_week)
+    a_can_access_month = _sync_to_async(can_access_month)
+    a_week_requires_premium = _sync_to_async(week_requires_premium)
+    a_month_requires_premium = _sync_to_async(month_requires_premium)
+    a_get_bot_settings = _sync_to_async(_get_bot_settings)
+else:
+    a_find_records_for_date = find_records_for_date  # type: ignore
+    a_find_records_for_week = find_records_for_week  # type: ignore
+    a_find_records_for_month = find_records_for_month  # type: ignore
+    a_active_ads_on = active_ads_on  # type: ignore
+    a_is_premium = is_premium  # type: ignore
+    a_can_access_week = can_access_week  # type: ignore
+    a_can_access_month = can_access_month  # type: ignore
+    a_week_requires_premium = week_requires_premium  # type: ignore
+    a_month_requires_premium = month_requires_premium  # type: ignore
+    a_get_bot_settings = _get_bot_settings  # type: ignore

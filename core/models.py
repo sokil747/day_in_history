@@ -47,3 +47,29 @@ class PremiumUser(models.Model):
 
     def __str__(self):
         return f"{self.telegram_id} — {self.full_name or self.email or '—'}"
+
+
+class BotSettings(models.Model):
+    week_requires_premium = models.BooleanField(
+        default=True,
+        verbose_name="Week in history — premium only",
+        help_text="If enabled, only premium users and admins see 'Week in history'. If disabled, visible to everyone.",
+    )
+    month_requires_premium = models.BooleanField(
+        default=True,
+        verbose_name="Month in history — premium only",
+        help_text="If enabled, only premium users and admins see 'Month in history'. If disabled, visible to everyone.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Bot settings"
+        verbose_name_plural = "Bot settings"
+
+    def __str__(self):
+        return "Bot settings"
+
+    @classmethod
+    def get_solo(cls) -> "BotSettings":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj

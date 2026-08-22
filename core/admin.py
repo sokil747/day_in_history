@@ -1,7 +1,7 @@
 from django.contrib import admin, messages
 from django.core.management import call_command
 
-from .models import Advertisement, Event, PremiumUser
+from .models import Advertisement, BotSettings, Event, PremiumUser
 
 
 @admin.register(Event)
@@ -47,3 +47,14 @@ class PremiumUserAdmin(admin.ModelAdmin):
     list_display = ("telegram_id", "full_name", "email", "phone", "created_at")
     search_fields = ("telegram_id", "full_name", "email", "phone")
     ordering = ("-created_at",)
+
+
+@admin.register(BotSettings)
+class BotSettingsAdmin(admin.ModelAdmin):
+    list_display = ("week_requires_premium", "month_requires_premium", "updated_at")
+
+    def has_add_permission(self, request):
+        return not BotSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
