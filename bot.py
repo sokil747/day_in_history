@@ -4,6 +4,7 @@ import json
 import logging
 import re
 import random
+import time
 from datetime import date, datetime
 
 from aiogram import Bot, Dispatcher, F
@@ -65,6 +66,21 @@ chat_responses: dict[int, list[int]] = {}
 
 def _track_subscriber(user_id: int | None) -> None:
     stats_store.record_interaction(user_id)
+
+
+def _admin_timing_enabled() -> bool:
+    return bool(welcome_config.get("admin_timing", False))
+
+
+async def _send_timing(callback: CallbackQuery, started: float) -> None:
+    uid = callback.from_user.id if callback.from_user else None
+    if not _admin_timing_enabled() or not uid or uid not in config.ADMIN_IDS:
+        return
+    elapsed = time.perf_counter() - started
+    _remember(
+        callback.message.chat.id,
+        await callback.message.answer(f"⏱ <b>{elapsed:.4f}</b> с"),
+    )
 
 
 def _admin_footer(user_id: int | None, user_name: str | None) -> str:
@@ -489,17 +505,20 @@ async def _send_grouped_screen(
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
 async def on_day_in_history(callback: CallbackQuery) -> None:
+    started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
         records = await a_find_records_for_date(_effective_today())
         await _send_day_screen(callback.message, records)
+        await _send_timing(callback, started)
     finally:
         await callback.answer()
 
 
 @dp.callback_query(F.data == WEEK_EVENTS_CALLBACK)
 async def on_week_events(callback: CallbackQuery) -> None:
+    started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
     if not await a_can_access_week(uid):
@@ -509,12 +528,14 @@ async def on_week_events(callback: CallbackQuery) -> None:
     try:
         records = await a_find_records_for_week(_effective_today())
         await _send_grouped_screen(callback.message, "week_img", records)
+        await _send_timing(callback, started)
     finally:
         await callback.answer()
 
 
 @dp.callback_query(F.data == MONTH_EVENTS_CALLBACK)
 async def on_month_events(callback: CallbackQuery) -> None:
+    started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
     if not await a_can_access_month(uid):
@@ -524,12 +545,14 @@ async def on_month_events(callback: CallbackQuery) -> None:
     try:
         records = await a_find_records_for_month(_effective_today())
         await _send_grouped_screen(callback.message, "month_img", records)
+        await _send_timing(callback, started)
     finally:
         await callback.answer()
 
 
 @dp.callback_query(F.data == RANDOM_DAY_CALLBACK)
 async def on_random_day(callback: CallbackQuery) -> None:
+    started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     import random
@@ -545,6 +568,7 @@ async def on_random_day(callback: CallbackQuery) -> None:
     else:
         records = await a_find_records_for_month(_effective_today())
     await _send_grouped_screen(callback.message, "random_date", records)
+    await _send_timing(callback, started)
     await callback.answer()
 
 

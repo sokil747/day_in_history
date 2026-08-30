@@ -14,6 +14,7 @@
   "day_footer": "👉 <b>Більше:</b> <a href=\"https://t.me/InsiderKidsNews\">@InsiderKidsNews</a>\n.......\n\nХочете розмістити рекламу?\n\nНаша пропозиція:\n🖼️ Фото 16:9\n📝 Текст до 100 знаків\n🔗 Посилання на сайт\n\nЗ питань реклами пишіть: <a href=\"https://t.me/IK_Founder\">@IK_Founder</a>",
   "test_mode": false,
   "test_day": "03/06/2026",
+  "admin_timing": true,
   "week_img": "assets/week.jpg",
   "month_img": "assets/month.jpg",
   "random_date": "assets/random_date.jpg"
