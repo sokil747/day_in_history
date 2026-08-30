@@ -105,14 +105,14 @@ def _ads_enabled() -> bool:
     return bool(welcome_config.get("ads_enabled", True))
 
 
-async def _send_timing(callback: CallbackQuery, started: float) -> None:
-    uid = callback.from_user.id if callback.from_user else None
+async def _send_timing(message: Message, started: float) -> None:
+    uid = message.from_user.id if message.from_user else None
     if not _admin_timing_enabled() or not uid or uid not in config.ADMIN_IDS:
         return
     elapsed = time.perf_counter() - started
     _remember(
-        callback.message.chat.id,
-        await callback.message.answer(
+        message.chat.id,
+        await message.answer(
             f"⏱ <b>{elapsed:.4f}</b> с", parse_mode=ParseMode.HTML
         ),
     )
@@ -584,7 +584,7 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
             "day", _effective_today(), a_find_records_for_date
         )
         await _send_day_screen(callback.message, records)
-        await _send_timing(callback, started)
+        await _send_timing(callback.message, started)
     finally:
         await callback.answer()
 
@@ -603,7 +603,7 @@ async def on_week_events(callback: CallbackQuery) -> None:
             "week", _effective_today(), a_find_records_for_week
         )
         await _send_grouped_screen(callback.message, "week_img", records)
-        await _send_timing(callback, started)
+        await _send_timing(callback.message, started)
     finally:
         await callback.answer()
 
@@ -622,7 +622,7 @@ async def on_month_events(callback: CallbackQuery) -> None:
             "month", _effective_today(), a_find_records_for_month
         )
         await _send_grouped_screen(callback.message, "month_img", records)
-        await _send_timing(callback, started)
+        await _send_timing(callback.message, started)
     finally:
         await callback.answer()
 
@@ -649,7 +649,7 @@ async def on_random_day(callback: CallbackQuery) -> None:
     await _clear_previous(callback.message.chat.id)
     records = await _random_day_records()
     await _send_grouped_screen(callback.message, "random_date", records)
-    await _send_timing(callback, started)
+    await _send_timing(callback.message, started)
     await callback.answer()
 
 
@@ -675,6 +675,7 @@ def _resolve_button_command(text: str) -> str | None:
 
 @dp.message(F.text)
 async def on_text(message: Message) -> None:
+    started = time.perf_counter()
     _track_subscriber(message.from_user.id if message.from_user else None)
     if message.text.startswith("/"):
         return
@@ -694,6 +695,7 @@ async def on_text(message: Message) -> None:
             "day", _effective_today(), a_find_records_for_date
         )
         await _send_day_screen(message, records)
+        await _send_timing(message, started)
     elif kind == "week":
         if not await a_can_access_week(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
@@ -702,6 +704,7 @@ async def on_text(message: Message) -> None:
             "week", _effective_today(), a_find_records_for_week
         )
         await _send_grouped_screen(message, "week_img", records)
+        await _send_timing(message, started)
     elif kind == "month":
         if not await a_can_access_month(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
@@ -710,9 +713,11 @@ async def on_text(message: Message) -> None:
             "month", _effective_today(), a_find_records_for_month
         )
         await _send_grouped_screen(message, "month_img", records)
+        await _send_timing(message, started)
     elif kind == "random":
         records = await _random_day_records()
         await _send_grouped_screen(message, "random_date", records)
+        await _send_timing(message, started)
     else:
         await _send_welcome(message)
 
