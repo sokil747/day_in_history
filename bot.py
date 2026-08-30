@@ -63,6 +63,29 @@ TEXT_COMMANDS = {
 
 chat_responses: dict[int, list[int]] = {}
 
+# Records cache: kind -> (effective_date, records). Valid until midnight
+# (date rollover forces refetch). Random day is never cached.
+_records_cache: dict[str, tuple[date, list]] = {}
+
+
+def _cached_records(kind: str, today: date) -> list | None:
+    hit = _records_cache.get(kind)
+    if hit is not None and hit[0] == today:
+        return hit[1]
+    return None
+
+
+def _store_records(kind: str, today: date, records: list) -> None:
+    _records_cache[kind] = (today, records)
+
+
+async def _get_records_cached(kind: str, today: date, fetch) -> list:
+    records = _cached_records(kind, today)
+    if records is None:
+        records = await fetch(today)
+        _store_records(kind, today, records)
+    return records
+
 
 def _track_subscriber(user_id: int | None) -> None:
     stats_store.record_interaction(user_id)
@@ -478,11 +501,13 @@ async def _send_day_screen(message: Message, records) -> None:
         events_text = _empty_events_text()
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
+    # Ads/tail first, image+events LAST: newest message gets client focus,
+    # so the user sees the response start without scrolling.
+    await _send_ads(message, ad_header)
+    await _send_footer_tail(message, footer_tail)
     await _send_photo_then_text(
         message, "day_img", welcome_config["day_header"], events_text
     )
-    await _send_ads(message, ad_header)
-    await _send_footer_tail(message, footer_tail)
 
 
 async def _send_grouped_screen(
@@ -496,11 +521,11 @@ async def _send_grouped_screen(
         events_text = _empty_events_text()
     if footer_head:
         events_text = f"{events_text}\n\n\n{footer_head}"
+    await _send_ads(message, ad_header)
+    await _send_footer_tail(message, footer_tail)
     await _send_photo_then_text(
         message, image_key, welcome_config["day_header"], events_text
     )
-    await _send_ads(message, ad_header)
-    await _send_footer_tail(message, footer_tail)
 
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
@@ -509,7 +534,9 @@ async def on_day_in_history(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
-        records = await a_find_records_for_date(_effective_today())
+        records = await _get_records_cached(
+            "day", _effective_today(), a_find_records_for_date
+        )
         await _send_day_screen(callback.message, records)
         await _send_timing(callback, started)
     finally:
@@ -526,7 +553,9 @@ async def on_week_events(callback: CallbackQuery) -> None:
         return
     await _clear_previous(callback.message.chat.id)
     try:
-        records = await a_find_records_for_week(_effective_today())
+        records = await _get_records_cached(
+            "week", _effective_today(), a_find_records_for_week
+        )
         await _send_grouped_screen(callback.message, "week_img", records)
         await _send_timing(callback, started)
     finally:
@@ -543,7 +572,9 @@ async def on_month_events(callback: CallbackQuery) -> None:
         return
     await _clear_previous(callback.message.chat.id)
     try:
-        records = await a_find_records_for_month(_effective_today())
+        records = await _get_records_cached(
+            "month", _effective_today(), a_find_records_for_month
+        )
         await _send_grouped_screen(callback.message, "month_img", records)
         await _send_timing(callback, started)
     finally:
@@ -580,19 +611,25 @@ async def on_text(message: Message) -> None:
 
     text = message.text.strip().lower()
     if text in TEXT_COMMANDS["day"]:
-        records = await a_find_records_for_date(_effective_today())
+        records = await _get_records_cached(
+            "day", _effective_today(), a_find_records_for_date
+        )
         await _send_day_screen(message, records)
     elif text in TEXT_COMMANDS["week"]:
         if not await a_can_access_week(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
-        records = await a_find_records_for_week(_effective_today())
+        records = await _get_records_cached(
+            "week", _effective_today(), a_find_records_for_week
+        )
         await _send_grouped_screen(message, "week_img", records)
     elif text in TEXT_COMMANDS["month"]:
         if not await a_can_access_month(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
-        records = await a_find_records_for_month(_effective_today())
+        records = await _get_records_cached(
+            "month", _effective_today(), a_find_records_for_month
+        )
         await _send_grouped_screen(message, "month_img", records)
     else:
         await _send_welcome(message)
