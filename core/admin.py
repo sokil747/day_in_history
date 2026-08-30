@@ -63,7 +63,13 @@ class PremiumUserAdmin(admin.ModelAdmin):
 
 @admin.register(BotSettings)
 class BotSettingsAdmin(admin.ModelAdmin):
-    list_display = ("week_requires_premium", "month_requires_premium", "updated_at")
+    list_display = (
+        "week_requires_premium",
+        "month_requires_premium",
+        "premium_lock_mode",
+        "premium_button_suffix",
+        "updated_at",
+    )
 
     def has_add_permission(self, request):
         return not BotSettings.objects.exists()

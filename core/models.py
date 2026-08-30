@@ -56,15 +56,36 @@ class PremiumUser(models.Model):
 
 
 class BotSettings(models.Model):
+    class PremiumLockMode(models.TextChoices):
+        INACTIVE = "inactive", "Visible but inactive (shows «преміум доступ» suffix)"
+        HIDDEN = "hidden", "Hidden for non-premium"
+
     week_requires_premium = models.BooleanField(
         default=True,
         verbose_name="Week in history — premium only",
-        help_text="If enabled, only premium users and admins see 'Week in history'. If disabled, visible to everyone.",
+        help_text="If enabled, only premium users and admins can open 'Week in history'.",
     )
     month_requires_premium = models.BooleanField(
         default=True,
         verbose_name="Month in history — premium only",
-        help_text="If enabled, only premium users and admins see 'Month in history'. If disabled, visible to everyone.",
+        help_text="If enabled, only premium users and admins can open 'Month in history'.",
+    )
+    premium_lock_mode = models.CharField(
+        max_length=16,
+        choices=PremiumLockMode.choices,
+        default=PremiumLockMode.INACTIVE,
+        verbose_name="Premium lock mode",
+        help_text="How premium-only buttons look for non-premium users.",
+    )
+    premium_button_suffix = models.CharField(
+        max_length=64,
+        default="преміум доступ",
+        blank=True,
+        verbose_name="Premium button suffix",
+        help_text=(
+            "Text in parentheses added to locked buttons, e.g. «преміум доступ». "
+            "Edit here to translate to other languages."
+        ),
     )
     updated_at = models.DateTimeField(auto_now=True)
 

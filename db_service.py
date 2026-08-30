@@ -139,6 +139,16 @@ def can_access_month(user_id: int | None) -> bool:
     return is_premium(user_id)
 
 
+def premium_lock_mode() -> str:
+    s = _get_bot_settings()
+    return getattr(s, "premium_lock_mode", "inactive") if s else "inactive"
+
+
+def premium_button_suffix() -> str:
+    s = _get_bot_settings()
+    return (getattr(s, "premium_button_suffix", "") or "") if s else ""
+
+
 # Async wrappers for use in aiogram (async) handlers — avoids
 # django.core.exceptions.SynchronousOnlyOperation
 try:
@@ -157,6 +167,8 @@ if _sync_to_async:
     a_week_requires_premium = _sync_to_async(week_requires_premium)
     a_month_requires_premium = _sync_to_async(month_requires_premium)
     a_get_bot_settings = _sync_to_async(_get_bot_settings)
+    a_premium_lock_mode = _sync_to_async(premium_lock_mode)
+    a_premium_button_suffix = _sync_to_async(premium_button_suffix)
 else:
     a_find_records_for_date = find_records_for_date  # type: ignore
     a_find_records_for_week = find_records_for_week  # type: ignore
@@ -168,3 +180,5 @@ else:
     a_week_requires_premium = week_requires_premium  # type: ignore
     a_month_requires_premium = month_requires_premium  # type: ignore
     a_get_bot_settings = _get_bot_settings  # type: ignore
+    a_premium_lock_mode = premium_lock_mode  # type: ignore
+    a_premium_button_suffix = premium_button_suffix  # type: ignore

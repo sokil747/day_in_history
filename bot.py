@@ -101,6 +101,19 @@ def _effective_today() -> date:
 
 
 async def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
+    from db_service import (
+        a_premium_button_suffix,
+        a_premium_lock_mode,
+    )
+
+    week_ok = await a_can_access_week(user_id)
+    month_ok = await a_can_access_month(user_id)
+    lock_mode = await a_premium_lock_mode()
+    suffix = await a_premium_button_suffix()
+
+    def _locked_text(base: str) -> str:
+        return f"{base} ({suffix})" if suffix else base
+
     rows = [
         [
             InlineKeyboardButton(
@@ -115,20 +128,28 @@ async def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
             )
         ],
     ]
-    if await a_can_access_week(user_id):
+    if week_ok or lock_mode == "inactive":
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=welcome_config["week_button_text"],
+                    text=(
+                        welcome_config["week_button_text"]
+                        if week_ok
+                        else _locked_text(welcome_config["week_button_text"])
+                    ),
                     callback_data=WEEK_EVENTS_CALLBACK,
                 )
             ]
         )
-    if await a_can_access_month(user_id):
+    if month_ok or lock_mode == "inactive":
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=welcome_config["month_button_text"],
+                    text=(
+                        welcome_config["month_button_text"]
+                        if month_ok
+                        else _locked_text(welcome_config["month_button_text"])
+                    ),
                     callback_data=MONTH_EVENTS_CALLBACK,
                 )
             ]
