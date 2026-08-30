@@ -174,8 +174,13 @@ async def _build_keyboard(user_id: int | None = None):
     )
 
     if _sticky_enabled():
+        # narrow mobile buttons: split the long word so the emoji is not
+        # alone on the first line — «🎲 Випадко⏎вий день»
+        random_text = welcome_config["random_day_text"].replace(
+            "Випадковий", "Випадко\nвий"
+        )
         buttons = [
-            KeyboardButton(text=welcome_config["random_day_text"]),
+            KeyboardButton(text=random_text),
             KeyboardButton(text=welcome_config["day_button_text"]),
         ]
         if show_week:
@@ -649,14 +654,14 @@ async def on_random_day(callback: CallbackQuery) -> None:
 
 
 def _resolve_button_command(text: str) -> str | None:
-    """Map a (sticky) button text, incl. locked «(...)» suffix, to a command kind."""
+    """Map a (sticky) button text, incl. 🔒 suffix / line breaks, to a command kind."""
     mapping = {
-        welcome_config["random_day_text"].strip().lower(): "random",
-        welcome_config["day_button_text"].strip().lower(): "day",
-        welcome_config["week_button_text"].strip().lower(): "week",
-        welcome_config["month_button_text"].strip().lower(): "month",
+        " ".join(welcome_config["random_day_text"].split()).lower(): "random",
+        " ".join(welcome_config["day_button_text"].split()).lower(): "day",
+        " ".join(welcome_config["week_button_text"].split()).lower(): "week",
+        " ".join(welcome_config["month_button_text"].split()).lower(): "month",
     }
-    t = text.strip().lower()
+    t = " ".join(text.split()).lower()  # normalize \n and extra spaces
     if t in mapping:
         return mapping[t]
     t = t.rstrip(" 🔒").strip()  # locked-button suffix
