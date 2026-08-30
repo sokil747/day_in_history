@@ -175,19 +175,19 @@ async def _build_keyboard(user_id: int | None = None):
     )
 
     if _sticky_enabled():
-        rows = [
-            [KeyboardButton(text=welcome_config["random_day_text"])],
-            [KeyboardButton(text=welcome_config["day_button_text"])],
+        buttons = [
+            KeyboardButton(text=welcome_config["random_day_text"]),
+            KeyboardButton(text=welcome_config["day_button_text"]),
         ]
         if show_week:
-            rows.append([KeyboardButton(text=week_text)])
+            buttons.append(KeyboardButton(text=week_text))
         if show_month:
-            rows.append([KeyboardButton(text=month_text)])
+            buttons.append(KeyboardButton(text=month_text))
         return ReplyKeyboardMarkup(
-            keyboard=rows,
+            keyboard=[buttons],
             resize_keyboard=True,
             is_persistent=True,
-            input_field_placeholder="Оберіть кнопку нижче ⤵️",
+            input_field_placeholder="Оберіть кнопку ⤵️",
         )
 
     rows = [
