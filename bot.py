@@ -153,17 +153,16 @@ def _effective_today() -> date:
 
 async def _build_keyboard(user_id: int | None = None):
     from db_service import (
-        a_premium_button_suffix,
         a_premium_lock_mode,
     )
 
     week_ok = await a_can_access_week(user_id)
     month_ok = await a_can_access_month(user_id)
     lock_mode = await a_premium_lock_mode()
-    suffix = await a_premium_button_suffix()
 
     def _locked_text(base: str) -> str:
-        return f"{base} ({suffix})" if suffix else base
+        # Telegram has no button text colors — 🔒 marks a locked button
+        return f"🔒 {base}"
 
     show_week = week_ok or lock_mode == "inactive"
     show_month = month_ok or lock_mode == "inactive"
@@ -658,6 +657,9 @@ def _resolve_button_command(text: str) -> str | None:
         welcome_config["month_button_text"].strip().lower(): "month",
     }
     t = text.strip().lower()
+    if t in mapping:
+        return mapping[t]
+    t = t.lstrip("🔒 ").strip()  # locked-button prefix
     if t in mapping:
         return mapping[t]
     base = re.sub(r"\s*\([^)]*\)\s*$", "", t).strip()
