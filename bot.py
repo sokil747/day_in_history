@@ -501,13 +501,11 @@ async def _send_day_screen(message: Message, records) -> None:
         events_text = _empty_events_text()
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
-    # Ads/tail first, image+events LAST: newest message gets client focus,
-    # so the user sees the response start without scrolling.
-    await _send_ads(message, ad_header)
-    await _send_footer_tail(message, footer_tail)
     await _send_photo_then_text(
         message, "day_img", welcome_config["day_header"], events_text
     )
+    await _send_ads(message, ad_header)
+    await _send_footer_tail(message, footer_tail)
 
 
 async def _send_grouped_screen(
@@ -521,11 +519,11 @@ async def _send_grouped_screen(
         events_text = _empty_events_text()
     if footer_head:
         events_text = f"{events_text}\n\n\n{footer_head}"
-    await _send_ads(message, ad_header)
-    await _send_footer_tail(message, footer_tail)
     await _send_photo_then_text(
         message, image_key, welcome_config["day_header"], events_text
     )
+    await _send_ads(message, ad_header)
+    await _send_footer_tail(message, footer_tail)
 
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
