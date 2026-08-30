@@ -102,7 +102,9 @@ async def _send_timing(callback: CallbackQuery, started: float) -> None:
     elapsed = time.perf_counter() - started
     _remember(
         callback.message.chat.id,
-        await callback.message.answer(f"⏱ <b>{elapsed:.4f}</b> с"),
+        await callback.message.answer(
+            f"⏱ <b>{elapsed:.4f}</b> с", parse_mode=ParseMode.HTML
+        ),
     )
 
 
