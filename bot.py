@@ -655,20 +655,22 @@ async def on_random_day(callback: CallbackQuery) -> None:
 
 def _resolve_button_command(text: str) -> str | None:
     """Map a (sticky) button text, incl. 🔒 suffix / line breaks, to a command kind."""
+
+    def _norm(s: str) -> str:
+        # drop ALL whitespace (newlines are inserted mid-word for mobile layout)
+        return "".join(s.split()).lower()
+
     mapping = {
-        " ".join(welcome_config["random_day_text"].split()).lower(): "random",
-        " ".join(welcome_config["day_button_text"].split()).lower(): "day",
-        " ".join(welcome_config["week_button_text"].split()).lower(): "week",
-        " ".join(welcome_config["month_button_text"].split()).lower(): "month",
+        _norm(welcome_config["random_day_text"]): "random",
+        _norm(welcome_config["day_button_text"]): "day",
+        _norm(welcome_config["week_button_text"]): "week",
+        _norm(welcome_config["month_button_text"]): "month",
     }
-    t = " ".join(text.split()).lower()  # normalize \n and extra spaces
+    t = _norm(text)
     if t in mapping:
         return mapping[t]
-    t = t.rstrip(" 🔒").strip()  # locked-button suffix
-    if t in mapping:
-        return mapping[t]
-    base = re.sub(r"\s*\([^)]*\)\s*$", "", t).strip()
-    return mapping.get(base)
+    t = t.rstrip("🔒").strip()  # locked-button suffix
+    return mapping.get(t)
 
 
 @dp.message(F.text)
