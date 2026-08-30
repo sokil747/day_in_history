@@ -17,8 +17,10 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    KeyboardButton,
     LinkPreviewOptions,
     Message,
+    ReplyKeyboardMarkup,
 )
 
 import config
@@ -95,6 +97,14 @@ def _admin_timing_enabled() -> bool:
     return bool(welcome_config.get("admin_timing", False))
 
 
+def _sticky_enabled() -> bool:
+    return bool(welcome_config.get("sticky_buttons", False))
+
+
+def _ads_enabled() -> bool:
+    return bool(welcome_config.get("ads_enabled", True))
+
+
 async def _send_timing(callback: CallbackQuery, started: float) -> None:
     uid = callback.from_user.id if callback.from_user else None
     if not _admin_timing_enabled() or not uid or uid not in config.ADMIN_IDS:
@@ -141,7 +151,7 @@ def _effective_today() -> date:
     return date.today()
 
 
-async def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
+async def _build_keyboard(user_id: int | None = None):
     from db_service import (
         a_premium_button_suffix,
         a_premium_lock_mode,
@@ -154,6 +164,31 @@ async def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
 
     def _locked_text(base: str) -> str:
         return f"{base} ({suffix})" if suffix else base
+
+    show_week = week_ok or lock_mode == "inactive"
+    show_month = month_ok or lock_mode == "inactive"
+    week_text = (
+        welcome_config["week_button_text"] if week_ok else _locked_text(welcome_config["week_button_text"])
+    )
+    month_text = (
+        welcome_config["month_button_text"] if month_ok else _locked_text(welcome_config["month_button_text"])
+    )
+
+    if _sticky_enabled():
+        rows = [
+            [KeyboardButton(text=welcome_config["random_day_text"])],
+            [KeyboardButton(text=welcome_config["day_button_text"])],
+        ]
+        if show_week:
+            rows.append([KeyboardButton(text=week_text)])
+        if show_month:
+            rows.append([KeyboardButton(text=month_text)])
+        return ReplyKeyboardMarkup(
+            keyboard=rows,
+            resize_keyboard=True,
+            is_persistent=True,
+            input_field_placeholder="Оберіть кнопку нижче ⤵️",
+        )
 
     rows = [
         [
@@ -169,28 +204,20 @@ async def _build_keyboard(user_id: int | None = None) -> InlineKeyboardMarkup:
             )
         ],
     ]
-    if week_ok or lock_mode == "inactive":
+    if show_week:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=(
-                        welcome_config["week_button_text"]
-                        if week_ok
-                        else _locked_text(welcome_config["week_button_text"])
-                    ),
+                    text=week_text,
                     callback_data=WEEK_EVENTS_CALLBACK,
                 )
             ]
         )
-    if month_ok or lock_mode == "inactive":
+    if show_month:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text=(
-                        welcome_config["month_button_text"]
-                        if month_ok
-                        else _locked_text(welcome_config["month_button_text"])
-                    ),
+                    text=month_text,
                     callback_data=MONTH_EVENTS_CALLBACK,
                 )
             ]
@@ -268,6 +295,8 @@ async def on_start(callback: CallbackQuery) -> None:
 
 
 async def _clear_previous(chat_id: int) -> None:
+    if _sticky_enabled():
+        return  # sticky mode keeps conversation history
     for msg_id in chat_responses.pop(chat_id, []):
         try:
             await bot.delete_message(chat_id, msg_id)
@@ -494,6 +523,10 @@ def _empty_events_text() -> str:
     )
 
 
+def _ad_inquiry_marker() -> str:
+    return "Хочете розмістити рекламу"
+
+
 async def _send_day_screen(message: Message, records) -> None:
     day_footer = welcome_config.get("day_footer", "")
     footer_head, ad_header, footer_tail = _split_footer(day_footer)
@@ -501,13 +534,18 @@ async def _send_day_screen(message: Message, records) -> None:
         events_text = build_day_events(records)
     else:
         events_text = _empty_events_text()
+    if not _ads_enabled() and footer_head:
+        # ads off — keep only the channel-link part of the footer
+        cut = footer_head.find(_ad_inquiry_marker())
+        footer_head = footer_head[:cut].rstrip() if cut != -1 else footer_head
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
     await _send_photo_then_text(
         message, "day_img", welcome_config["day_header"], events_text
     )
-    await _send_ads(message, ad_header)
-    await _send_footer_tail(message, footer_tail)
+    if _ads_enabled():
+        await _send_ads(message, ad_header)
+        await _send_footer_tail(message, footer_tail)
 
 
 async def _send_grouped_screen(
@@ -519,13 +557,17 @@ async def _send_grouped_screen(
         events_text = build_grouped_events(records)
     else:
         events_text = _empty_events_text()
+    if not _ads_enabled() and footer_head:
+        cut = footer_head.find(_ad_inquiry_marker())
+        footer_head = footer_head[:cut].rstrip() if cut != -1 else footer_head
     if footer_head:
         events_text = f"{events_text}\n\n\n{footer_head}"
     await _send_photo_then_text(
         message, image_key, welcome_config["day_header"], events_text
     )
-    await _send_ads(message, ad_header)
-    await _send_footer_tail(message, footer_tail)
+    if _ads_enabled():
+        await _send_ads(message, ad_header)
+        await _send_footer_tail(message, footer_tail)
 
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
@@ -581,26 +623,45 @@ async def on_month_events(callback: CallbackQuery) -> None:
         await callback.answer()
 
 
+async def _random_day_records() -> list:
+    for _ in range(10):
+        month = random.randint(1, 12)
+        day = random.randint(1, 31)
+        try:
+            records = await a_find_records_for_date(
+                date(_effective_today().year, month, day)
+            )
+            if records:
+                return records
+        except Exception:
+            continue
+    return await a_find_records_for_month(_effective_today())
+
+
 @dp.callback_query(F.data == RANDOM_DAY_CALLBACK)
 async def on_random_day(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
-    import random
-    for _ in range(10):
-        month = random.randint(1, 12)
-        day = random.randint(1, 31)
-        try:
-            records = await a_find_records_for_date(date(2026, month, day))
-            if records:
-                break
-        except Exception:
-            continue
-    else:
-        records = await a_find_records_for_month(_effective_today())
+    records = await _random_day_records()
     await _send_grouped_screen(callback.message, "random_date", records)
     await _send_timing(callback, started)
     await callback.answer()
+
+
+def _resolve_button_command(text: str) -> str | None:
+    """Map a (sticky) button text, incl. locked «(...)» suffix, to a command kind."""
+    mapping = {
+        welcome_config["random_day_text"].strip().lower(): "random",
+        welcome_config["day_button_text"].strip().lower(): "day",
+        welcome_config["week_button_text"].strip().lower(): "week",
+        welcome_config["month_button_text"].strip().lower(): "month",
+    }
+    t = text.strip().lower()
+    if t in mapping:
+        return mapping[t]
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", t).strip()
+    return mapping.get(base)
 
 
 @dp.message(F.text)
@@ -610,12 +671,21 @@ async def on_text(message: Message) -> None:
         return
 
     text = message.text.strip().lower()
-    if text in TEXT_COMMANDS["day"]:
+    kind = _resolve_button_command(text)
+    if kind is None:
+        if text in TEXT_COMMANDS["day"]:
+            kind = "day"
+        elif text in TEXT_COMMANDS["week"]:
+            kind = "week"
+        elif text in TEXT_COMMANDS["month"]:
+            kind = "month"
+
+    if kind == "day":
         records = await _get_records_cached(
             "day", _effective_today(), a_find_records_for_date
         )
         await _send_day_screen(message, records)
-    elif text in TEXT_COMMANDS["week"]:
+    elif kind == "week":
         if not await a_can_access_week(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
@@ -623,7 +693,7 @@ async def on_text(message: Message) -> None:
             "week", _effective_today(), a_find_records_for_week
         )
         await _send_grouped_screen(message, "week_img", records)
-    elif text in TEXT_COMMANDS["month"]:
+    elif kind == "month":
         if not await a_can_access_month(message.from_user.id if message.from_user else None):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
@@ -631,6 +701,9 @@ async def on_text(message: Message) -> None:
             "month", _effective_today(), a_find_records_for_month
         )
         await _send_grouped_screen(message, "month_img", records)
+    elif kind == "random":
+        records = await _random_day_records()
+        await _send_grouped_screen(message, "random_date", records)
     else:
         await _send_welcome(message)
 
