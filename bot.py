@@ -162,7 +162,7 @@ async def _build_keyboard(user_id: int | None = None):
 
     def _locked_text(base: str) -> str:
         # Telegram has no button text colors — 🔒 marks a locked button
-        return f"🔒 {base}"
+        return f"{base} 🔒"
 
     show_week = week_ok or lock_mode == "inactive"
     show_month = month_ok or lock_mode == "inactive"
@@ -659,7 +659,7 @@ def _resolve_button_command(text: str) -> str | None:
     t = text.strip().lower()
     if t in mapping:
         return mapping[t]
-    t = t.lstrip("🔒 ").strip()  # locked-button prefix
+    t = t.rstrip(" 🔒").strip()  # locked-button suffix
     if t in mapping:
         return mapping[t]
     base = re.sub(r"\s*\([^)]*\)\s*$", "", t).strip()
