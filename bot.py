@@ -93,6 +93,21 @@ def _track_subscriber(user_id: int | None) -> None:
     stats_store.record_interaction(user_id)
 
 
+def _dev_mode_config() -> dict:
+    cfg = welcome_config.get("dev_mode", {})
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _dev_message() -> str:
+    return _dev_mode_config().get(
+        "message", "🚧 Ця функція в розробці. Скоро буде доступна!"
+    )
+
+
+def _is_dev_button(kind: str) -> bool:
+    return bool(_dev_mode_config().get("buttons", {}).get(kind, False))
+
+
 def _admin_timing_enabled() -> bool:
     return bool(welcome_config.get("admin_timing", False))
 
@@ -594,6 +609,9 @@ async def on_week_events(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
+    if _is_dev_button("week") and uid not in config.ADMIN_IDS:
+        await callback.answer(_dev_message(), show_alert=True)
+        return
     if not await a_can_access_week(uid):
         await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
         return
@@ -613,6 +631,9 @@ async def on_month_events(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
+    if _is_dev_button("month") and uid not in config.ADMIN_IDS:
+        await callback.answer(_dev_message(), show_alert=True)
+        return
     if not await a_can_access_month(uid):
         await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
         return
@@ -697,7 +718,11 @@ async def on_text(message: Message) -> None:
         await _send_day_screen(message, records)
         await _send_timing(message, started)
     elif kind == "week":
-        if not await a_can_access_week(message.from_user.id if message.from_user else None):
+        uid = message.from_user.id if message.from_user else None
+        if _is_dev_button("week") and uid not in config.ADMIN_IDS:
+            await message.answer(_dev_message(), parse_mode=ParseMode.HTML)
+            return
+        if not await a_can_access_week(uid):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
         records = await _get_records_cached(
@@ -706,7 +731,11 @@ async def on_text(message: Message) -> None:
         await _send_grouped_screen(message, "week_img", records)
         await _send_timing(message, started)
     elif kind == "month":
-        if not await a_can_access_month(message.from_user.id if message.from_user else None):
+        uid = message.from_user.id if message.from_user else None
+        if _is_dev_button("month") and uid not in config.ADMIN_IDS:
+            await message.answer(_dev_message(), parse_mode=ParseMode.HTML)
+            return
+        if not await a_can_access_month(uid):
             await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
             return
         records = await _get_records_cached(
