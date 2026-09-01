@@ -56,6 +56,7 @@ DAY_IN_HISTORY_CALLBACK = "day_in_history"
 WEEK_EVENTS_CALLBACK = "week_events"
 MONTH_EVENTS_CALLBACK = "month_events"
 RANDOM_DAY_CALLBACK = "random_day"
+BACK_CALLBACK = "back_to_main"
 
 TEXT_COMMANDS = {
     "day": {"day in history", "день в історії", "день"},
@@ -248,6 +249,23 @@ def _premium_required_text() -> str:
     return (
         "🔒 Ця функція доступна лише для <b>преміум</b> користувачів.\n"
         "Зверніться до адміністратора, щоб отримати доступ."
+    )
+
+
+def _back_button_text() -> str:
+    return welcome_config.get("back_to_menu_text", "Назад в Головне меню")
+
+
+def _back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=_back_button_text(),
+                    callback_data=BACK_CALLBACK,
+                )
+            ]
+        ]
     )
 
 
@@ -565,6 +583,7 @@ async def _send_day_screen(message: Message, records) -> None:
     if _ads_enabled():
         await _send_ads(message, ad_header)
         await _send_footer_tail(message, footer_tail)
+    await _send_back_button(message)
 
 
 async def _send_grouped_screen(
@@ -587,6 +606,29 @@ async def _send_grouped_screen(
     if _ads_enabled():
         await _send_ads(message, ad_header)
         await _send_footer_tail(message, footer_tail)
+    await _send_back_button(message)
+
+
+async def _send_back_button(message: Message) -> None:
+    _remember(
+        message.chat.id,
+        await message.answer(
+            "⬇️",
+            reply_markup=_back_keyboard(),
+            link_preview_options=NO_LINK_PREVIEW,
+        ),
+    )
+
+
+@dp.callback_query(F.data == BACK_CALLBACK)
+async def on_back_to_main(callback: CallbackQuery) -> None:
+    # delete everything the events screen produced, incl. the back-button msg
+    await _clear_previous(callback.message.chat.id)
+    try:
+        await callback.message.delete()
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
 
 
 @dp.callback_query(F.data == DAY_IN_HISTORY_CALLBACK)
