@@ -15,7 +15,7 @@
   "test_mode": false,
   "test_day": "03/06/2026",
   "admin_timing": true,
-  "sticky_buttons": true,
+  "sticky_buttons": false,
   "ads_enabled": false,
   "week_img": "assets/week.jpg",
   "month_img": "assets/month.jpg",
