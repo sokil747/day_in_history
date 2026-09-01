@@ -610,14 +610,18 @@ async def _send_grouped_screen(
 
 
 async def _send_back_button(message: Message) -> None:
-    _remember(
-        message.chat.id,
-        await message.answer(
-            "​",
+    # attach back button to the last message of the screen — no extra message
+    ids = chat_responses.get(message.chat.id) or []
+    if not ids:
+        return
+    try:
+        await bot.edit_message_reply_markup(
+            chat_id=message.chat.id,
+            message_id=ids[-1],
             reply_markup=_back_keyboard(),
-            link_preview_options=NO_LINK_PREVIEW,
-        ),
-    )
+        )
+    except TelegramBadRequest as exc:
+        logging.warning("Failed to attach back button: %s", exc)
 
 
 @dp.callback_query(F.data == BACK_CALLBACK)
