@@ -613,7 +613,7 @@ async def _send_back_button(message: Message) -> None:
     _remember(
         message.chat.id,
         await message.answer(
-            _back_button_text(),
+            "​",
             reply_markup=_back_keyboard(),
             link_preview_options=NO_LINK_PREVIEW,
         ),
