@@ -57,6 +57,7 @@ WEEK_EVENTS_CALLBACK = "week_events"
 MONTH_EVENTS_CALLBACK = "month_events"
 RANDOM_DAY_CALLBACK = "random_day"
 BACK_CALLBACK = "back_to_main"
+READ_NEXT_CALLBACK = "read_next"
 
 TEXT_COMMANDS = {
     "day": {"day in history", "день в історії", "день"},
@@ -65,6 +66,9 @@ TEXT_COMMANDS = {
 }
 
 chat_responses: dict[int, list[int]] = {}
+
+# Pending "Читати далі" pages: chat_id -> list of remaining page texts
+read_next_pages: dict[int, list[str]] = {}
 
 # Records cache: kind -> (effective_date, records). Valid until midnight
 # (date rollover forces refetch). Random day is never cached.
@@ -256,6 +260,26 @@ def _back_button_text() -> str:
     return welcome_config.get("back_to_menu_text", "Назад в Головне меню")
 
 
+def _read_next_enabled() -> bool:
+    return bool(welcome_config.get("read_next_enabled", False))
+
+
+def _read_next_text() -> str:
+    return welcome_config.get("read_next_text", "Читати далі")
+
+
+def _read_next_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if read_next_pages.get(chat_id):
+        rows.append(
+            [InlineKeyboardButton(text=_read_next_text(), callback_data=READ_NEXT_CALLBACK)]
+        )
+    rows.append(
+        [InlineKeyboardButton(text=_back_button_text(), callback_data=BACK_CALLBACK)]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def _back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -332,6 +356,7 @@ async def on_start(callback: CallbackQuery) -> None:
 
 
 async def _clear_previous(chat_id: int) -> None:
+    read_next_pages.pop(chat_id, None)
     if _sticky_enabled():
         return  # sticky mode keeps conversation history
     for msg_id in chat_responses.pop(chat_id, []):
@@ -436,6 +461,19 @@ async def _send_photo_then_text(
         total = 1 + len(pieces)
         if total > 1:
             caption_part = _balance_html(caption_part) + f"\n\n📄 1/{total}"
+        if pieces and _read_next_enabled():
+            read_next_pages[message.chat.id] = [
+                f"📄 {i + 2}/{total}\n\n{p}" for i, p in enumerate(pieces)
+            ]
+            sent = await message.answer_photo(
+                FSInputFile(welcome_config[image_key]),
+                caption=caption_part,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+                link_preview_options=NO_LINK_PREVIEW,
+            )
+            _remember(message.chat.id, sent)
+            return
         sent = await message.answer_photo(
             FSInputFile(welcome_config[image_key]),
             caption=caption_part,
@@ -648,10 +686,54 @@ async def _send_back_button(message: Message) -> None:
         await bot.edit_message_reply_markup(
             chat_id=message.chat.id,
             message_id=ids[-1],
-            reply_markup=_back_keyboard(),
+            reply_markup=_read_next_keyboard(message.chat.id),
         )
     except TelegramBadRequest as exc:
         logging.warning("Failed to attach back button: %s", exc)
+
+
+@dp.callback_query(F.data == READ_NEXT_CALLBACK)
+async def on_read_next(callback: CallbackQuery) -> None:
+    chat_id = callback.message.chat.id
+    queue = read_next_pages.get(chat_id)
+    if not queue:
+        await callback.answer("Більше немає сторінок", show_alert=True)
+        return
+    piece = queue.pop(0)
+    kb = None
+    if queue:
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=_read_next_text(),
+                        callback_data=READ_NEXT_CALLBACK,
+                    )
+                ]
+            ]
+        )
+    sent = await callback.message.answer(
+        piece,
+        parse_mode=ParseMode.HTML,
+        link_preview_options=NO_LINK_PREVIEW,
+        reply_markup=kb,
+    )
+    _remember(chat_id, sent)
+    if not queue:
+        read_next_pages.pop(chat_id, None)
+    # move the button forward: strip it from the clicked message
+    has_back = bool(callback.message.reply_markup) and any(
+        b.callback_data == BACK_CALLBACK
+        for row in callback.message.reply_markup.inline_keyboard
+        for b in row
+    )
+    try:
+        await callback.message.edit_reply_markup(
+            reply_markup=_back_keyboard() if has_back else None
+        )
+    except TelegramBadRequest:
+        pass
+    await callback.answer()
 
 
 @dp.callback_query(F.data == BACK_CALLBACK)
