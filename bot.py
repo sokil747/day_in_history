@@ -393,6 +393,16 @@ def _chunk_html(text: str, limit: int) -> list[str]:
     return result
 
 
+def _balance_html(text: str) -> str:
+    tags = re.findall(r"<([a-z][a-z0-9]*)(?:\s[^>]*)?>", text)
+    open_tags = [
+        t for t in tags if text.count(f"<{t}>") > text.count(f"</{t}>")
+    ]
+    for tag in reversed(open_tags):
+        text = f"{text}</{tag}>"
+    return text
+
+
 async def _send_photo_then_text(
     message: Message, image_key: str, caption: str, body: str, reply_markup=None
 ) -> None:
@@ -408,19 +418,39 @@ async def _send_photo_then_text(
             )
             _remember(message.chat.id, sent)
             return
+        # Pagination: pack as many event lines into the photo caption as fit,
+        # continue the rest in numbered follow-up messages.
+        budget = MAX_CAPTION - len(caption) - 2
+        lines = body.split("\n") if body else []
+        keep: list[str] = []
+        used = 0
+        for line in lines:
+            add = len(line) + (1 if keep else 0)
+            if used + add > budget:
+                break
+            keep.append(line)
+            used += add
+        caption_part = f"{caption}\n\n" + "\n".join(keep) if keep else caption
+        rest = "\n".join(lines[len(keep):]) if len(keep) < len(lines) else ""
+        pieces = _chunk_html(rest, MAX_MESSAGE) if rest else []
+        total = 1 + len(pieces)
+        if total > 1:
+            caption_part = _balance_html(caption_part) + f"\n\n📄 1/{total}"
         sent = await message.answer_photo(
             FSInputFile(welcome_config[image_key]),
-            caption=caption,
+            caption=caption_part,
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML,
             link_preview_options=NO_LINK_PREVIEW,
         )
         _remember(message.chat.id, sent)
-        for piece in _chunk_html(body, MAX_MESSAGE):
+        for i, piece in enumerate(pieces):
             _remember(
                 message.chat.id,
                 await message.answer(
-                    piece, parse_mode=ParseMode.HTML, link_preview_options=NO_LINK_PREVIEW
+                    f"📄 {i + 2}/{total}\n\n{piece}",
+                    parse_mode=ParseMode.HTML,
+                    link_preview_options=NO_LINK_PREVIEW,
                 ),
             )
     except Exception as exc:
