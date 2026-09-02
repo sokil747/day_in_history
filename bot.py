@@ -700,18 +700,8 @@ async def on_read_next(callback: CallbackQuery) -> None:
         await callback.answer("Більше немає сторінок", show_alert=True)
         return
     piece = queue.pop(0)
-    kb = None
-    if queue:
-        kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=_read_next_text(),
-                        callback_data=READ_NEXT_CALLBACK,
-                    )
-                ]
-            ]
-        )
+    # every revealed page carries «Назад»; «Читати далі» only while pages remain
+    kb = _read_next_keyboard(chat_id)
     sent = await callback.message.answer(
         piece,
         parse_mode=ParseMode.HTML,
@@ -721,16 +711,9 @@ async def on_read_next(callback: CallbackQuery) -> None:
     _remember(chat_id, sent)
     if not queue:
         read_next_pages.pop(chat_id, None)
-    # move the button forward: strip it from the clicked message
-    has_back = bool(callback.message.reply_markup) and any(
-        b.callback_data == BACK_CALLBACK
-        for row in callback.message.reply_markup.inline_keyboard
-        for b in row
-    )
+    # strip the read-next row from the clicked message (keep its back row)
     try:
-        await callback.message.edit_reply_markup(
-            reply_markup=_back_keyboard() if has_back else None
-        )
+        await callback.message.edit_reply_markup(reply_markup=_back_keyboard())
     except TelegramBadRequest:
         pass
     await callback.answer()
