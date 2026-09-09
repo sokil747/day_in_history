@@ -4,7 +4,7 @@
 {% block after_field_sets %}
   {{ block.super }}
   <div class="submit-row" style="margin:12px 0;">
-    <a href="{% url 'core_autopublish_test' %}"
+    <a href="{% url 'admin:core_autopublish_test' %}"
        onclick="return confirm('Опублікувати «День в історії» на канал {{ original.channel }} зараз?');"
        class="button default" style="background:#b45309;color:#fff;padding:10px 18px;">🚀 Тест — опублікувати зараз</a>
     <span style="color:#666;margin-left:8px;">запускає публікацію негайно, ігноруючи час і дні в налаштуваннях</span>
