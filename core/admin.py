@@ -11,6 +11,7 @@ from .models import Advertisement, AutoPublishSettings, BotSettings, Event, Prem
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
     list_display = ("month", "day", "order", "year", "emoji", "category", "short_text", "source", "auto_publish")
+    list_editable = ("auto_publish",)
     list_filter = ("month", "category", "auto_publish")
     search_fields = ("text", "category", "emoji")
     ordering = ("month", "day", "order")
@@ -20,12 +21,22 @@ class EventAdmin(admin.ModelAdmin):
     def short_text(self, obj):
         return obj.text[:80]
 
-    actions = ["sync_from_sheets"]
+    actions = ["sync_from_sheets", "enable_auto_publish", "disable_auto_publish"]
 
     @admin.action(description="Sync events from Google Sheet")
     def sync_from_sheets(self, request, queryset):
         call_command("sync_from_sheets")
         self.message_user(request, "Events synced from Google Sheet.", messages.SUCCESS)
+
+    @admin.action(description="✅ Увімкнути авто-публікацію (для вибраних)")
+    def enable_auto_publish(self, request, queryset):
+        count = queryset.update(auto_publish=True)
+        self.message_user(request, f"Авто-публікацію увімкнено для {count} подій.", messages.SUCCESS)
+
+    @admin.action(description="⛔ Вимкнути авто-публікацію (для вибраних)")
+    def disable_auto_publish(self, request, queryset):
+        count = queryset.update(auto_publish=False)
+        self.message_user(request, f"Авто-публікацію вимкнено для {count} подій.", messages.SUCCESS)
 
 
 @admin.register(Advertisement)

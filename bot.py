@@ -894,27 +894,48 @@ async def on_text(message: Message) -> None:
 
 
 async def _auto_publish_loop() -> None:
-    """Minute-by-minute check of AutoPublishSettings; publishes when due."""
-    from asgiref.sync import sync_to_async
-    from core.models import AutoPublishSettings
+    """Once a day at 00:01 UTC plan today's publish at the configured time.
 
-    log.info("Auto-publish scheduler started")
-    last_run_key = ""
+    Events don't change during the day, so one morning check is enough.
+    """
+    from asgiref.sync import sync_to_async
+    from datetime import datetime as dt, timedelta
+
+    log.info("Auto-publish scheduler started (daily check at 00:01 UTC)")
     while True:
         try:
-            now = datetime.now().replace(second=0, microsecond=0)
+            now_utc = dt.utcnow()
+            # next 00:01 UTC
+            check_at = now_utc.replace(hour=0, minute=1, second=0, microsecond=0)
+            if now_utc >= check_at:
+                check_at += timedelta(days=1)
+            wait_s = (check_at - now_utc).total_seconds()
+            log.info("Auto-publish: next daily check at %s (in %.0f s)", check_at, wait_s)
+            await asyncio.sleep(max(wait_s, 1))
+
             settings = await sync_to_async(AutoPublishSettings.get_solo)()
-            if settings.is_scheduled_now(now):
-                run_key = now.strftime("%Y%m%d%H%M")
-                if run_key != last_run_key and await sync_to_async(
-                    auto_publish.has_auto_publish_events
-                )(_effective_today()):
-                    last_run_key = run_key
-                    log.info("Auto-publish triggered at %s -> %s", run_key, settings.channel)
-                    await auto_publish.publish_day(bot, settings.channel)
+            target = _effective_today()
+            has_events = await sync_to_async(auto_publish.has_auto_publish_events)(target)
+            if not has_events:
+                log.info("Auto-publish: no events with auto_publish for %s — skipped", target)
+                continue
+
+            publish_at = check_at.replace(
+                hour=settings.publish_time.hour, minute=settings.publish_time.minute, second=0
+            )
+            now_utc = dt.utcnow()
+            if settings.enabled:
+                wait_publish = (publish_at - now_utc).total_seconds()
+                if wait_publish > 0:
+                    log.info(
+                        "Auto-publish: planned for %s -> %s", publish_at, settings.channel
+                    )
+                    await asyncio.sleep(wait_publish)
+                await auto_publish.publish_day(bot, settings.channel, target)
+                log.info("Auto-publish: sent to %s for %s", settings.channel, target)
         except Exception as exc:
             log.warning("Auto-publish loop error: %s", exc)
-        await asyncio.sleep(30)
+            await asyncio.sleep(60)
 
 
 async def main() -> None:
