@@ -121,7 +121,16 @@ class AutoPublishAdminForm(forms.ModelForm):
 @admin.register(AutoPublishSettings)
 class AutoPublishSettingsAdmin(admin.ModelAdmin):
     form = AutoPublishAdminForm
-    list_display = ("enabled", "publish_time", "days_of_week", "channel", "updated_at")
+    list_display = (
+        "id",
+        "enabled",
+        "publish_time",
+        "channel",
+        "days_of_week",
+        "updated_at",
+    )
+    list_display_links = ("id",)
+    list_editable = ("enabled", "publish_time", "channel")
     change_form_template = "admin/autopublish_change_form.html"
 
     def has_add_permission(self, request):
