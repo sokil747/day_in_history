@@ -10,6 +10,11 @@ class Event(models.Model):
     category = models.CharField(max_length=255, blank=True)
     text = models.TextField()
     source = models.URLField(max_length=2048, blank=True)
+    auto_publish = models.BooleanField(
+        default=False,
+        verbose_name="Auto publish",
+        help_text="If enabled and today's day/week matches, bot will publish this event day to the channel at the scheduled time.",
+    )
 
     class Meta:
         ordering = ["month", "day", "order"]
@@ -100,3 +105,68 @@ class BotSettings(models.Model):
     def get_solo(cls) -> "BotSettings":
         obj, _ = cls.objects.get_or_create(pk=1)
         return obj
+
+
+class AutoPublishSettings(models.Model):
+    class DayOfWeek(models.IntegerChoices):
+        MON = 0, "Пн"
+        TUE = 1, "Вт"
+        WED = 2, "Ср"
+        THU = 3, "Чт"
+        FRI = 4, "Пт"
+        SAT = 5, "Сб"
+        SUN = 6, "Нд"
+
+    enabled = models.BooleanField(
+        default=True,
+        verbose_name="Auto publish enabled",
+        help_text="Master switch for daily auto publishing to the channel.",
+    )
+    publish_time = models.TimeField(
+        default="09:00",
+        verbose_name="Publish time (UTC)",
+        help_text="Daily check time (server/UTC time).",
+    )
+    days_of_week = models.CharField(
+        max_length=20,
+        default="0,1,2,3,4,5,6",
+        verbose_name="Days of week",
+        help_text="Comma-separated weekday numbers: 0=Пн … 6=Нд, e.g. '0,2,4'",
+    )
+    channel = models.CharField(
+        max_length=64,
+        default="@InsiderKidsNews",
+        verbose_name="Telegram channel",
+        help_text="Channel username (@name) or numeric chat id. Bot must be admin with post rights.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Auto publish settings"
+        verbose_name_plural = "Auto publish settings"
+
+    def __str__(self):
+        return "Auto publish settings"
+
+    @classmethod
+    def get_solo(cls) -> "AutoPublishSettings":
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    def days_list(self) -> list[int]:
+        out: list[int] = []
+        for raw in (self.days_of_week or "").split(","):
+            raw = raw.strip()
+            if raw.isdigit() and 0 <= int(raw) <= 6:
+                out.append(int(raw))
+        return out
+
+    def is_scheduled_now(self, now) -> bool:
+        if not self.enabled:
+            return False
+        if now.weekday() not in self.days_list():
+            return False
+        return (
+            now.hour == self.publish_time.hour
+            and now.minute == self.publish_time.minute
+        )

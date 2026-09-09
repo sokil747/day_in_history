@@ -1,0 +1,24 @@
+{% extends "admin/change_form.html" %}
+{% load i18n %}
+
+{% block submit_buttons_top %}
+  {{ block.super }}
+  <div style="margin:8px 0;">
+    <a href="{% url 'core_autopublish_test' %}"
+       onclick="return confirm('Опублікувати «День в історії» на канал {{ original.channel }} зараз?');"
+       class="button" style="background:#b45309;color:#fff;">🚀 Тест — опублікувати зараз</a>
+    <span style="color:#666;">— запускає перевірку негайно, ігноруючи час і дні в налаштуваннях</span>
+  </div>
+{% endblock %}
+
+{% block after_field_sets %}
+  <fieldset class="module">
+    <h2>Довідка</h2>
+    <ul style="margin:10px 0 10px 16px;">
+      <li>Бот перевіряє події щохвилини; публікація відбувається у вказаний <b>час</b> у вибрані <b>дні тижня</b> (час серверний — UTC).</li>
+      <li>Публікація відправляється, лише якщо в подій на сьогодні хоча б одна має прапорець <b>Auto publish</b> (<a href="/admin/core/event/?auto_publish__exact=1">список подій з авто-публікацією</a>).</li>
+      <li>Бот має бути адміном каналу з правом публікації повідомлень.</li>
+    </ul>
+  </fieldset>
+  {{ block.super }}
+{% endblock %}

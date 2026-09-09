@@ -41,6 +41,7 @@ from db_service import (
     is_premium,
 )
 from google_sheets_service import AdRecord, download_ad_logo
+import auto_publish
 import stats_store
 
 logging.basicConfig(level=logging.INFO)
@@ -892,7 +893,32 @@ async def on_text(message: Message) -> None:
         await _send_welcome(message)
 
 
+async def _auto_publish_loop() -> None:
+    """Minute-by-minute check of AutoPublishSettings; publishes when due."""
+    from asgiref.sync import sync_to_async
+    from core.models import AutoPublishSettings
+
+    log.info("Auto-publish scheduler started")
+    last_run_key = ""
+    while True:
+        try:
+            now = datetime.now().replace(second=0, microsecond=0)
+            settings = await sync_to_async(AutoPublishSettings.get_solo)()
+            if settings.is_scheduled_now(now):
+                run_key = now.strftime("%Y%m%d%H%M")
+                if run_key != last_run_key and await sync_to_async(
+                    auto_publish.has_auto_publish_events
+                )(_effective_today()):
+                    last_run_key = run_key
+                    log.info("Auto-publish triggered at %s -> %s", run_key, settings.channel)
+                    await auto_publish.publish_day(bot, settings.channel)
+        except Exception as exc:
+            log.warning("Auto-publish loop error: %s", exc)
+        await asyncio.sleep(30)
+
+
 async def main() -> None:
+    asyncio.create_task(_auto_publish_loop())
     await dp.start_polling(bot)
 
 
