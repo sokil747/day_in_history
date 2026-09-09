@@ -10,7 +10,8 @@ from .models import Advertisement, AutoPublishSettings, BotSettings, Event, Prem
 
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ("month", "day", "order", "year", "emoji", "category", "short_text", "source", "auto_publish")
+    list_display = ("id", "auto_publish", "month", "day", "order", "year", "emoji", "category", "short_text", "source")
+    list_display_links = ("id",)
     list_editable = ("auto_publish",)
     list_filter = ("month", "category", "auto_publish")
     search_fields = ("text", "category", "emoji")
