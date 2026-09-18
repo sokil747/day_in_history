@@ -182,7 +182,6 @@ async def publish_day(bot: Bot, channel: str, target: date | None = None) -> int
                 FSInputFile(photo),
                 caption=caption,
                 parse_mode=ParseMode.HTML,
-                link_preview_options=NO_LINK_PREVIEW,
             )
             sent_count += 1
         else:
