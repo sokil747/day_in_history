@@ -45,6 +45,7 @@ import auto_publish
 import stats_store
 
 logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("bot")
 
 with open("config.json", encoding="utf-8") as _f:
     welcome_config = json.load(_f)
