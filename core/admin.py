@@ -154,18 +154,23 @@ class AutoPublishSettingsAdmin(admin.ModelAdmin):
     def test_publish(self, request):
         import threading
 
+        result: dict = {}
+
         def _run():
             try:
                 import auto_publish as ap
 
-                ap.run_test()
+                result["msg"] = ap.run_test()
             except Exception as e:  # pragma: no cover
+                result["msg"] = f"Тест НЕ вдався: {type(e).__name__}: {e}"
                 print(f"Auto-publish test failed: {e}")
 
-        threading.Thread(target=_run, daemon=True).start()
-        self.message_user(
-            request,
-            "Тестова публікація запущена — перевірте канал протягом кількох секунд.",
-            messages.SUCCESS,
+        thread = threading.Thread(target=_run, daemon=True)
+        thread.start()
+        thread.join(timeout=25)  # wait — publish usually takes 1-3 s
+        msg = result.get("msg") or (
+            "Тест ще виконується у фоні — перевірте канал через хвилину."
         )
+        status = messages.SUCCESS if "успішно" in msg else messages.WARNING
+        self.message_user(request, msg, status)
         return redirect("/admin/core/autopublishsettings/1/change/")

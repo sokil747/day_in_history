@@ -256,13 +256,40 @@ def should_publish_now(now: datetime) -> bool:
     return has_auto_publish_events(_effective_today())
 
 
-def run_test(target: date | None = None) -> int:
-    """Publish immediately ignoring time/days — returns messages sent."""
+def run_test(target: date | None = None) -> str:
+    """Publish immediately ignoring time/days. Returns human-readable status."""
     import asyncio
+    from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
     from core.models import AutoPublishSettings
 
     s = AutoPublishSettings.get_solo()
-    bot = Bot(token=config.BOT_TOKEN)
-    count = asyncio.run(publish_day(bot, s.channel, target))
-    log.info("Auto-publish test sent %s messages to %s", count, s.channel)
-    return count
+    channel = (s.channel or "").strip()
+    # accept pasted t.me links, normalize to @username
+    m = re.search(r"t\.me/([A-Za-z0-9_]+)", channel)
+    if m and not channel.startswith("@") and not channel.lstrip("-").isdigit():
+        channel = f"@{m.group(1)}"
+
+    try:
+        bot = Bot(token=config.BOT_TOKEN)
+        count = asyncio.run(publish_day(bot, channel, target))
+        if count == 0:
+            msg = f"Тест: нічого не відправлено (помилка відправки на {channel}). Див. лог бота."
+        else:
+            msg = f"Тест: успішно відправлено {count} повідомлень на {channel}."
+        log.info("Auto-publish test: %s", msg)
+        return msg
+    except TelegramForbiddenError:
+        msg = (
+            f"Тест НЕ вдався: бот не має доступу до {channel}. "
+            "Додайте бота адміном каналу з правом публікації повідомлень."
+        )
+        log.warning("Auto-publish test failed: %s", msg)
+        return msg
+    except TelegramBadRequest as exc:
+        msg = f"Тест НЕ вдався: Telegram відмовив: {exc}"
+        log.warning("Auto-publish test failed: %s", msg)
+        return msg
+    except Exception as exc:
+        msg = f"Тест НЕ вдався: {type(exc).__name__}: {exc}"
+        log.warning("Auto-publish test failed: %s", msg)
+        return msg
