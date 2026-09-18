@@ -195,7 +195,7 @@ async def publish_day(bot: Bot, channel: str, target: date | None = None) -> int
             sent_count += 1
     except Exception as exc:
         log.warning("Auto-publish: failed to send day screen: %s", exc)
-        return sent_count
+        raise  # let callers (e.g. run_test) surface the real reason
 
     for i, piece in enumerate(pages):
         try:
