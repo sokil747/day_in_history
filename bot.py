@@ -345,10 +345,14 @@ def _back_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
     )
 
 
-def _user_lang(user_id: int | None) -> str:
+def _user_lang_sync(user_id: int | None) -> str:
     from core.models import UserLang
 
     return UserLang.get_lang(user_id)
+
+
+async def _user_lang(user_id: int | None) -> str:
+    return await sync_to_async(_user_lang_sync)(user_id)
 
 
 def _welcome_keyboard() -> InlineKeyboardMarkup:
@@ -427,7 +431,7 @@ async def on_start(callback: CallbackQuery) -> None:
     # legacy single-start callback: open in saved or default language
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
-    lang = _user_lang(uid)
+    lang = await _user_lang(uid)
     kb = await _build_keyboard(uid, lang)
     try:
         await callback.message.answer_photo(
@@ -453,7 +457,8 @@ async def on_lang_toggle(callback: CallbackQuery) -> None:
     if uid:
         from core.models import UserLang
 
-        new_lang = await sync_to_async(UserLang.set_lang)(uid, "en" if _user_lang(uid) == "uk" else "uk")
+        current = await _user_lang(uid)
+        new_lang = await sync_to_async(UserLang.set_lang)(uid, "en" if current == "uk" else "uk")
     else:
         new_lang = "uk"
     kb = await _build_keyboard(uid, new_lang)
@@ -810,7 +815,7 @@ async def _send_back_button(message: Message, lang: str = "uk") -> None:
 async def on_read_next(callback: CallbackQuery) -> None:
     chat_id = callback.message.chat.id
     queue = read_next_pages.get(chat_id)
-    lang = _user_lang(callback.from_user.id if callback.from_user else None)
+    lang = await _user_lang(callback.from_user.id if callback.from_user else None)
     if not queue:
         await callback.answer(_svc("no_pages", lang), show_alert=True)
         return
@@ -849,7 +854,7 @@ async def on_back_to_main(callback: CallbackQuery) -> None:
 async def on_day_in_history(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
-    lang = _user_lang(callback.from_user.id if callback.from_user else None)
+    lang = await _user_lang(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
         records = await _get_records_cached(
@@ -866,7 +871,7 @@ async def on_week_events(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
-    lang = _user_lang(uid)
+    lang = await _user_lang(uid)
     if _is_dev_button("week") and uid not in config.ADMIN_IDS:
         await callback.answer(_dev_message(lang), show_alert=True)
         return
@@ -889,7 +894,7 @@ async def on_month_events(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
-    lang = _user_lang(uid)
+    lang = await _user_lang(uid)
     if _is_dev_button("month") and uid not in config.ADMIN_IDS:
         await callback.answer(_dev_message(lang), show_alert=True)
         return
@@ -926,7 +931,7 @@ async def _random_day_records() -> list:
 async def on_random_day(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
-    lang = _user_lang(callback.from_user.id if callback.from_user else None)
+    lang = await _user_lang(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     records = await _random_day_records()
     await _send_grouped_screen(callback.message, "random_date", records, lang)
@@ -961,7 +966,7 @@ async def on_text(message: Message) -> None:
     started = time.perf_counter()
     _track_subscriber(message.from_user.id if message.from_user else None)
     uid = message.from_user.id if message.from_user else None
-    lang = _user_lang(uid)
+    lang = await _user_lang(uid)
     if message.text.startswith("/"):
         return
 
