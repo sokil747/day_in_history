@@ -62,6 +62,17 @@ class EventAdmin(admin.ModelAdmin):
         )
 
     actions = ["sync_from_sheets", "enable_auto_publish", "disable_auto_publish", "translate_events"]
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        total = Event.objects.count()
+        done = Event.objects.exclude(text_en="").count()
+        pct = round(done / total * 100, 1) if total else 0
+        extra_context["translation_total"] = total
+        extra_context["translation_done"] = done
+        extra_context["translation_pct"] = pct
+        return super().changelist_view(request, extra_context)
+
     @admin.action(description="Sync events from Google Sheet")
     def sync_from_sheets(self, request, queryset):
         call_command("sync_from_sheets")

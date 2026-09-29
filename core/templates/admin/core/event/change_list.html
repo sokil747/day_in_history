@@ -1,0 +1,12 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block result_list %}
+  <div style="margin:8px 0 12px; padding:10px 14px; background:#eef4ff; border:1px solid #c3d4f5; border-radius:6px;">
+    <strong>🌐 Translated:</strong> {{ translation_done }} / {{ translation_total }} ({{ translation_pct }}%)
+    <div style="background:#d7e1f5; border-radius:4px; height:8px; width:280px; display:inline-block; vertical-align:middle; margin-left:10px;">
+      <div style="background:#2563eb; border-radius:4px; height:8px; width:{{ translation_pct }}%;"></div>
+    </div>
+  </div>
+  {{ block.super }}
+{% endblock %}
