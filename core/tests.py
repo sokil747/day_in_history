@@ -1,4 +1,8 @@
 from io import StringIO
+import time
+import threading
+from pathlib import Path
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
@@ -184,6 +188,256 @@ class FormattingLangTests(TestCase):
         self.assertIn("21 September", out)
         self.assertIn("22 September", out)
         self.assertIn("In 1906 t2", out)
+
+
+class TranslationJobTests(TestCase):
+    def setUp(self):
+        import tempfile
+
+        from core import translation_job
+
+        self._job = translation_job
+        self._orig_state = translation_job.STATE_DIR
+        self._tmp = tempfile.mkdtemp()
+        translation_job.STATE_DIR = Path(self._tmp)
+        # patch module-level path constants to point at temp dir
+        self._files = {}
+        for name in ("RUNNING_FILE", "STOP_FILE", "DONE_FILE", "FAIL_FILE", "TOTAL_FILE", "LOG_FILE"):
+            f = getattr(translation_job, name)
+            self._files[name] = f
+            setattr(translation_job, name, Path(self._tmp) / f.name)
+
+    def tearDown(self):
+        self._job.STATE_DIR = self._orig_state
+        for name, f in self._files.items():
+            setattr(self._job, name, f)
+
+    def _run(self):
+        import threading
+
+        from core import llm as llm_mod
+
+        result = {}
+
+        def fake_translate(text, model=None, base_url=None):
+            result["translated_text"] = text
+            return f"EN:{text}"
+
+        with patch.object(llm_mod, "translate", fake_translate):
+            runner = self._job._Runner()
+            runner.run()
+
+        return result
+
+    def test_run_translates_missing_only(self):
+        Event.objects.create(month=9, day=21, order=1, text="a", text_en="")
+        Event.objects.create(month=9, day=22, order=1, text="b", text_en="keep")
+        self._run()
+        self.assertEqual(Event.objects.get(month=9, day=21).text_en, "EN:a")
+        self.assertEqual(Event.objects.get(month=9, day=22).text_en, "keep")
+
+    def test_run_updates_progress_files(self):
+        Event.objects.create(month=9, day=21, order=1, text="a")
+        Event.objects.create(month=9, day=22, order=1, text="b")
+        self._run()
+        self.assertEqual((Path(self._tmp) / "total").read_text(), "2")
+        self.assertEqual((Path(self._tmp) / "done").read_text(), "2")
+        self.assertFalse((Path(self._tmp) / "running").exists())
+
+    def test_stop_stops_between_events_and_cleans_files(self):
+        from core import llm as llm_mod
+
+        Event.objects.create(month=9, day=21, order=1, text="a")
+        Event.objects.create(month=9, day=22, order=1, text="b")
+        calls = []
+
+        def fake(text, model=None, base_url=None):
+            calls.append(text)
+            if len(calls) == 1:
+                # user presses Stop after first event done
+                (Path(self._tmp) / "stop").write_text("1")
+            return "EN"
+
+        with patch.object(llm_mod, "translate", fake):
+            runner = self._job._Runner()
+            runner.run()
+        self.assertEqual(len(calls), 1)  # second event never attempted
+        self.assertFalse((Path(self._tmp) / "running").exists())
+        self.assertFalse((Path(self._tmp) / "stop").exists())
+        self.assertEqual((Path(self._tmp) / "done").read_text(), "1")
+
+    def test_status_reports_totals_and_eta_fields(self):
+        Event.objects.create(month=9, day=21, order=1, text="a")
+        self._run()
+        # after finish: running cleared; status reports not running
+        st = self._job.read_status()
+        self.assertFalse(st["running"])
+        self.assertEqual(st["total"], 1)
+
+    def test_start_in_background_refuses_second_start(self):
+        import time as _t
+        from unittest.mock import patch as _patch
+
+        started = threading.Event()
+
+        class FakeRunner:
+            def run(self, model=None, base_url=None, skip_setup=False):
+                started.set()
+                from core import translation_job as tj
+
+                tj._write(tj.RUNNING_FILE, "1")  # like real runner
+                _t.sleep(0.4)
+                tj.RUNNING_FILE.unlink(missing_ok=True)  # like real runner finally-block
+
+        with _patch.object(self._job, "_Runner", FakeRunner):
+            ok = self._job.start_in_background()
+            self.assertTrue(ok)
+            self.assertTrue(started.wait(3))
+            deadline = _t.time() + 3
+            while not self._job.is_running() and _t.time() < deadline:
+                _t.sleep(0.02)
+            # second start refused while job active
+            self.assertFalse(self._job.start_in_background())
+        deadline = _t.time() + 5
+        while self._job.is_running() and _t.time() < deadline:
+            _t.sleep(0.05)
+        self.assertFalse(self._job.is_running())
+
+    def test_request_stop_writes_stop_file_only_when_running(self):
+        from unittest.mock import patch as _patch
+
+        # no job running -> request_stop is a no-op
+        self._job.request_stop()
+        self.assertFalse((Path(self._tmp) / "stop").exists())
+
+        # running job -> stop file written
+        (Path(self._tmp) / "running").write_text("1")
+        self._job.request_stop()
+        self.assertTrue((Path(self._tmp) / "stop").exists())
+
+
+class TranslationJobStatusTests(TestCase):
+    def setUp(self):
+        import tempfile
+
+        from core import translation_job
+
+        self._job = translation_job
+        self._orig_state = translation_job.STATE_DIR
+        self._tmp = tempfile.mkdtemp()
+        self._job.STATE_DIR = Path(self._tmp)
+        self._files = {}
+        for name in ("RUNNING_FILE", "STOP_FILE", "DONE_FILE", "FAIL_FILE", "TOTAL_FILE", "LOG_FILE", "STARTED_FILE", "LAST_FILE"):
+            f = getattr(translation_job, name)
+            self._files[name] = f
+            setattr(translation_job, name, Path(self._tmp) / f.name)
+
+    def tearDown(self):
+        self._job.STATE_DIR = self._orig_state
+        for name, f in self._files.items():
+            setattr(self._job, name, f)
+
+    def test_eta_fields_in_status(self):
+        # simulate job mid-run: running, started 100s ago, 10/100 done
+        (Path(self._tmp) / "running").write_text("1")
+        (Path(self._tmp) / "started").write_text(str(time.time() - 100))
+        (Path(self._tmp) / "done").write_text("10")
+        (Path(self._tmp) / "total").write_text("100")
+        st = self._job.read_status()
+        self.assertTrue(st["running"])
+        self.assertEqual(st["done"], 10)
+        self.assertEqual(st["total"], 100)
+        self.assertAlmostEqual(st["elapsed_s"], 100, delta=3)
+        # rate = 10/100 events/min -> remaining 90 events -> 900 s
+        self.assertAlmostEqual(st["eta_s"], 900, delta=30)
+
+
+class TranslationAdminEndpointsTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        from django.contrib.auth.models import User
+
+        cls.admin = User.objects.create_superuser("a", "a@example.com", "pw")
+
+    def setUp(self):
+        import tempfile
+
+        from core import translation_job
+
+        self._job = translation_job
+        self._orig = {n: getattr(translation_job, n) for n in
+                      ("STATE_DIR", "RUNNING_FILE", "STOP_FILE", "STARTED_FILE", "LAST_FILE", "DONE_FILE", "FAIL_FILE", "TOTAL_FILE", "LOG_FILE")}
+        import tempfile
+
+        tmp = tempfile.mkdtemp()
+        translation_job.STATE_DIR = Path(tmp)
+        for name in ("RUNNING_FILE", "STOP_FILE", "STARTED_FILE", "LAST_FILE", "DONE_FILE", "FAIL_FILE", "TOTAL_FILE", "LOG_FILE"):
+            f = getattr(translation_job, name)
+            setattr(translation_job, name, Path(tmp) / f.name)
+        self.client.force_login(self.admin)
+
+    def tearDown(self):
+        from core import translation_job
+
+        for n, v in self._orig.items():
+            setattr(translation_job, n, v)
+
+    def test_status_endpoint(self):
+        resp = self.client.get("/admin/core/event/translate/status/")
+        self.assertEqual(resp.status_code, 200)
+        import json
+
+        data = resp.json()
+        self.assertIn("running", data)
+        self.assertIn("done", data)
+        self.assertIn("total", data)
+        self.assertIn("eta_s", data)
+        self.assertIn("elapsed_s", data)
+
+    def test_start_endpoint_launches_job(self):
+        from unittest.mock import patch as _patch
+
+        with _patch.object(self._job, "_Runner", lambda: _BlockingRunner()):
+            resp = self.client.post("/admin/core/event/translate/start/")
+            self.assertTrue(self._job.is_running())
+            import time as _t
+
+            self.assertTrue(self._job.is_running())
+
+    def test_stop_endpoint(self):
+        from unittest.mock import patch as _patch
+
+        with _patch.object(self._job, "_Runner", lambda: _BlockingRunner()):
+            self.client.post("/admin/core/event/translate/start/")
+            self.assertTrue(self._job.is_running())
+            resp = self.client.post("/admin/core/event/translate/stop/")
+            self.assertEqual(resp.status_code, 302)
+            self.assertTrue((self._job.STATE_DIR / "stop").exists())
+            self._job.RUNNING_FILE.unlink(missing_ok=True)
+
+    def test_endpoints_require_admin(self):
+        self.client.logout()
+        resp = self.client.get("/admin/core/event/translate/status/")
+        self.assertIn(resp.status_code, (302, 403))
+
+
+class _BlockingRunner:
+    """Runner fake that stays 'running' until stopped; no DB access from thread."""
+
+
+
+    def run(self, model=None, base_url=None, skip_setup=False):
+        import time as _t
+
+        deadline = _t.time() + 5
+        while _t.time() < deadline:
+            if _tj_mod.STOP_FILE.exists():
+                break
+            _t.sleep(0.05)
+        _tj_mod.RUNNING_FILE.unlink(missing_ok=True)
+
+
+from core import translation_job as _tj_mod
 
 
 class SyncPreservesTranslationsTests(TestCase):

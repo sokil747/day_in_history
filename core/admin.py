@@ -71,7 +71,59 @@ class EventAdmin(admin.ModelAdmin):
         extra_context["translation_total"] = total
         extra_context["translation_done"] = done
         extra_context["translation_pct"] = pct
+        from core import translation_job
+
+        extra_context["job_status"] = translation_job.read_status()
         return super().changelist_view(request, extra_context)
+
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                "translate/start/",
+                self.admin_site.admin_view(self.translate_start),
+                name="core_event_translate_start",
+            ),
+            path(
+                "translate/stop/",
+                self.admin_site.admin_view(self.translate_stop),
+                name="core_event_translate_stop",
+            ),
+            path(
+                "translate/status/",
+                self.admin_site.admin_view(self.translate_status),
+                name="core_event_translate_status",
+            ),
+        ]
+        return custom + urls
+
+    def translate_start(self, request):
+        from core import translation_job
+
+        started = translation_job.start_in_background()
+        if started:
+            self.message_user(request, "Translation started in background.", messages.SUCCESS)
+        else:
+            self.message_user(request, "Translation already running.", messages.WARNING)
+        return redirect(request.META.get("HTTP_REFERER") or "/admin/core/event/")
+
+    def translate_stop(self, request):
+        from core import translation_job
+
+        translation_job.request_stop()
+        self.message_user(request, "Stop requested — finishing current event, then halting.", messages.WARNING)
+        return redirect(request.META.get("HTTP_REFERER") or "/admin/core/event/")
+
+    def translate_status(self, request):
+        import json
+
+        from django.http import HttpResponse
+
+        from core import translation_job
+
+        return HttpResponse(
+            json.dumps(translation_job.read_status()), content_type="application/json"
+        )
 
     @admin.action(description="Sync events from Google Sheet")
     def sync_from_sheets(self, request, queryset):

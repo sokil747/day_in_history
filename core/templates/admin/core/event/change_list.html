@@ -2,11 +2,65 @@
 {% load i18n %}
 
 {% block result_list %}
-  <div style="margin:8px 0 12px; padding:10px 14px; background:#eef4ff; border:1px solid #c3d4f5; border-radius:6px;">
-    <strong>🌐 Translated:</strong> {{ translation_done }} / {{ translation_total }} ({{ translation_pct }}%)
-    <div style="background:#d7e1f5; border-radius:4px; height:8px; width:280px; display:inline-block; vertical-align:middle; margin-left:10px;">
-      <div style="background:#2563eb; border-radius:4px; height:8px; width:{{ translation_pct }}%;"></div>
+  <div id="tr-panel" style="margin:8px 0 12px; padding:10px 14px; background:#eef4ff; border:1px solid #c3d4f5; border-radius:6px;">
+    <strong>🌐 Translated:</strong>
+    <span id="tr-label">{{ translation_done }} / {{ translation_total }} ({{ translation_pct }}%)</span>
+    <div id="tr-bar-track" style="background:#d7e1f5; border-radius:4px; height:8px; width:280px; display:inline-block; vertical-align:middle; margin-left:10px;">
+      <div id="tr-bar" style="background:#2563eb; border-radius:4px; height:8px; width:{{ translation_pct }}%;"></div>
     </div>
+
+    <span id="tr-controls" style="margin-left:18px;">
+      {% if job_status.running %}
+        <a href="/admin/core/event/translate/stop/" id="tr-stop" class="button" style="background:#b91c1c;color:#fff;padding:6px 14px;">⏹ Stop translation</a>
+        <span id="tr-live" style="margin-left:10px;">
+          <b id="tr-progress">{{ job_status.done }}</b>/{{ job_status.total }} events
+          {% if job_status.stopping %}<em style="color:#b91c1c;">(stopping…)</em>{% endif %}
+          <span id="tr-timing" style="color:#555;margin-left:10px;">
+            {% if job_status.eta_s %}⏱ elapsed {{ job_status.elapsed_s }}s · left ≈ <b id="tr-eta">{{ job_status.eta_s }}</b>s{% else %}⏱ elapsed {{ job_status.elapsed_s }}s{% endif %}
+          </span>
+        </span>
+      {% else %}
+        <a href="/admin/core/event/translate/start/" id="tr-start" class="button" style="background:#1d4ed8;color:#fff;padding:6px 14px;margin-left:18px;">▶ Translate the rest</a>
+      {% endif %}
+    </span>
   </div>
+
+  <script>
+    (function () {
+      var running = {{ job_status.running|yesno:"true,false" }};
+      if (!running) return;
+      var total = {{ job_status.total|default:0 }};
+      var etaEl = document.getElementById("tr-eta");
+      var progEl = document.getElementById("tr-progress");
+      var labelEl = document.getElementById("tr-label");
+      var barEl = document.getElementById("tr-bar");
+      var timingEl = document.getElementById("tr-timing");
+      var t0 = Date.now();
+      var elapsed0 = {{ job_status.elapsed_s|default:0 }};
+      var done0 = {{ job_status.done|default:0 }};
+      var eta0 = {{ job_status.eta_s|default:"null" }};
+
+      function fmt(s) { return Math.round(s); }
+
+      var timer = setInterval(function () {
+        fetch("/admin/core/event/translate/status/", {headers: {"Accept": "application/json"}})
+          .then(function (r) { return r.json(); })
+          .then(function (st) {
+            if (!st.running) { window.location.reload(); return; }
+            progEl.textContent = st.done;
+            var pct = st.total ? Math.round(st.done / st.total * 1000) / 10 : 0;
+            barEl.style.width = pct + "%";
+            labelEl.textContent = st.done + " / " + st.total + " (" + pct + "%)";
+            if (st.eta_s !== null && st.eta_s !== undefined) {
+              timingEl.innerHTML = "⏱ elapsed " + Math.round(st.elapsed_s) + "s · left ≈ <b>" + Math.round(st.eta_s) + "</b>s" + (st.stopping ? " · <em style='color:#b91c1c;'>stopping…</em>" : "");
+            } else {
+              timingEl.innerHTML = "⏱ elapsed " + Math.round(st.elapsed_s) + "s" + (st.stopping ? " · <em style='color:#b91c1c;'>stopping…</em>" : "");
+            }
+          })
+          .catch(function () {});
+      }, 2000);
+    })();
+  </script>
+
   {{ block.super }}
 {% endblock %}
