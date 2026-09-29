@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.request
 from contextlib import contextmanager
 
@@ -13,6 +14,7 @@ _TIMEOUT_S = 120
 _system_prompt = (
     "You are a translator. Translate the user's Ukrainian text into English. "
     "Keep emojis, HTML entities (&lt; &gt; &amp; &quot;), hashtags and proper nouns intact. "
+    "Never add hashtags, comments or any text that is not in the source. "
     "Reply with the translation only — no explanations, no quotes, no extra text."
 )
 
@@ -37,10 +39,18 @@ def _call_ollama(text: str, model: str, base_url: str) -> str:
     return data.get("response", "").strip()
 
 
+def strip_hashtags(text: str) -> str:
+    """Remove #hashtags (LLM tends to append them) and tidy leftover spaces."""
+    text = re.sub(r"#[A-Za-z0-9_]+", "", text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" +([.,!?;:])", r"\1", text)
+    return text.strip()
+
+
 def translate(text: str, model: str | None = None, base_url: str | None = None) -> str:
     model = model or os.environ.get("GEMMA_MODEL", _DEFAULT_MODEL)
     base_url = base_url or os.environ.get("GEMMA_BASE_URL", _DEFAULT_BASE_URL)
-    return _call_ollama(text, model, base_url)
+    return strip_hashtags(_call_ollama(text, model, base_url))
 
 
 @contextmanager

@@ -8,6 +8,30 @@ from core.models import Event
 from core import llm as llm_mod
 
 
+class StripHashtagsTests(TestCase):
+    def test_prompt_forbids_hashtags(self):
+        self.assertIn("hashtag", llm_mod._system_prompt.lower())
+
+    def test_removes_trailing_hashtag_block(self):
+        self.assertEqual(
+            llm_mod.strip_hashtags("Kyiv Fortress celebrates 180 years #Kyiv #Ukraine #History"),
+            "Kyiv Fortress celebrates 180 years",
+        )
+
+    def test_removes_hashtags_inside_text(self):
+        self.assertEqual(
+            llm_mod.strip_hashtags("Great event #history happened today"),
+            "Great event happened today",
+        )
+
+    def test_keeps_text_without_hashtags(self):
+        self.assertEqual(llm_mod.strip_hashtags("Plain sentence."), "Plain sentence.")
+
+    def test_keeps_html_entities(self):
+        src = 'Founded &lt;b&gt;1900&lt;/b&gt; #retro'
+        self.assertEqual(llm_mod.strip_hashtags(src), "Founded &lt;b&gt;1900&lt;/b&gt;")
+
+
 class TranslateEventsCommandTests(TestCase):
     def setUp(self):
         self.e1 = Event.objects.create(month=9, day=21, order=1, text="укр раз")
