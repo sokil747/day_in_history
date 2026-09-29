@@ -40,6 +40,7 @@ from db_service import (
     find_records_for_week,
     is_premium,
 )
+from core.models import AutoPublishSettings
 from google_sheets_service import AdRecord, download_ad_logo
 import auto_publish
 import stats_store
