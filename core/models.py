@@ -9,6 +9,12 @@ class Event(models.Model):
     emoji = models.CharField(max_length=32, blank=True)
     category = models.CharField(max_length=255, blank=True)
     text = models.TextField()
+    text_en = models.TextField(
+        blank=True,
+        default="",
+        verbose_name="Text (English)",
+        help_text="English translation of the text (via Gemma LLM or manual).",
+    )
     source = models.URLField(max_length=2048, blank=True)
     auto_publish = models.BooleanField(
         default=False,

@@ -10,21 +10,44 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         records = get_records()
+        # Preserve per-row state (text_en, auto_publish) across syncs: match old
+        # rows by (month, day, order, year, text) — sheet text unchanged => carry over.
+        new_keys = set()
+        old_state = {
+            (e.month, e.day, e.order, e.year, e.text): (e.text_en, e.auto_publish)
+            for e in Event.objects.all().iterator()
+        }
         Event.objects.all().delete()
-        objs = [
-            Event(
-                month=r.month,
-                day=r.day,
-                order=r.order,
-                year=r.year,
-                emoji=r.emoji,
-                category=r.category,
-                text=r.text,
-                source=r.source,
+        objs = []
+        for r in records:
+            new_keys.add((r.month, r.day, r.order, r.year, r.text))
+            state = old_state.get(
+                (r.month, r.day, r.order, r.year, r.text), ("", False)
             )
-            for r in records
-        ]
+            objs.append(
+                Event(
+                    month=r.month,
+                    day=r.day,
+                    order=r.order,
+                    year=r.year,
+                    emoji=r.emoji,
+                    category=r.category,
+                    text=r.text,
+                    text_en=state[0],
+                    auto_publish=state[1],
+                    source=r.source,
+                )
+            )
         Event.objects.bulk_create(objs, batch_size=500)
+
+        dropped = len(old_state) - len(new_keys & set(old_state))
+        if dropped > 0:
+            self.stdout.write(
+                self.style.WARNING(
+                    f"{dropped} DB rows not matched in sheet; their "
+                    "translations/auto_publish were dropped."
+                )
+            )
         self.stdout.write(self.style.SUCCESS(f"Imported {len(objs)} events."))
 
         ads = get_advertisements()

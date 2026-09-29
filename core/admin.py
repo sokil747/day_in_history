@@ -1,6 +1,7 @@
 from django import forms
 from django.contrib import admin, messages
 from django.core.management import call_command
+from django.db.models import Q
 from django.shortcuts import redirect
 from django.urls import path
 from django.utils.html import mark_safe
@@ -8,13 +9,28 @@ from django.utils.html import mark_safe
 from .models import Advertisement, AutoPublishSettings, BotSettings, Event, PremiumUser
 
 
+class TranslationFilter(admin.SimpleListFilter):
+    title = "English translation"
+    parameter_name = "translation"
+
+    def lookups(self, request, model_admin):
+        return [("translated", "Translated"), ("missing", "Missing")]
+
+    def queryset(self, request, queryset):
+        if self.value() == "translated":
+            return queryset.exclude(text_en="")
+        if self.value() == "missing":
+            return queryset.filter(text_en="")
+        return queryset
+
+
 @admin.register(Event)
 class EventAdmin(admin.ModelAdmin):
-    list_display = ("id", "auto_publish", "month", "day", "order", "year", "emoji", "category", "short_text", "source")
+    list_display = ("id", "auto_publish", "month", "day", "order", "year", "emoji", "category", "short_text", "short_text_en", "source")
     list_display_links = ("id",)
     list_editable = ("auto_publish",)
-    list_filter = ("month", "category", "auto_publish")
-    search_fields = ("text", "category", "emoji")
+    list_filter = ("month", "category", "auto_publish", TranslationFilter)
+    search_fields = ("text", "text_en", "category", "emoji")
     ordering = ("month", "day", "order")
     list_per_page = 50
 
@@ -22,8 +38,30 @@ class EventAdmin(admin.ModelAdmin):
     def short_text(self, obj):
         return obj.text[:80]
 
-    actions = ["sync_from_sheets", "enable_auto_publish", "disable_auto_publish"]
+    @admin.display(description="Text (EN)", boolean=True)
+    def short_text_en(self, obj):
+        return bool(obj.text_en)
 
+    @admin.display(description="Translation", boolean=True)
+    def translation(self, obj):
+        return bool(obj.text_en)
+
+    @admin.action(description="🌐 Translate selected events now (Gemma)")
+    def translate_events(self, request, queryset):
+        from core.llm import translate_async
+
+        translated = 0
+        for e in queryset.filter(text_en=""):
+            en = translate_async(e.text)
+            if en:
+                e.text_en = en
+                e.save(update_fields=["text_en"])
+                translated += 1
+        self.message_user(
+            request, f"Перекладено {translated} з {queryset.count()} подій.", messages.SUCCESS
+        )
+
+    actions = ["sync_from_sheets", "enable_auto_publish", "disable_auto_publish", "translate_events"]
     @admin.action(description="Sync events from Google Sheet")
     def sync_from_sheets(self, request, queryset):
         call_command("sync_from_sheets")
