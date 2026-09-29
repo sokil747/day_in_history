@@ -50,6 +50,35 @@ class Advertisement(models.Model):
         return self.text[:80]
 
 
+class UserLang(models.Model):
+    telegram_id = models.BigIntegerField(unique=True, db_index=True)
+    lang = models.CharField(max_length=2, default="uk", choices=[("uk", "uk"), ("en", "en")])
+
+    class Meta:
+        verbose_name = "User language"
+        verbose_name_plural = "User languages"
+
+    def __str__(self):
+        return f"{self.telegram_id} — {self.lang}"
+
+    @classmethod
+    def get_lang(cls, telegram_id: int | None) -> str:
+        if not telegram_id:
+            return "uk"
+        obj, _ = cls.objects.get_or_create(telegram_id=telegram_id)
+        return obj.lang
+
+    @classmethod
+    def set_lang(cls, telegram_id: int | None, lang: str) -> str:
+        if not telegram_id:
+            return "uk"
+        obj, _ = cls.objects.get_or_create(telegram_id=telegram_id, defaults={"lang": lang})
+        if obj.lang != lang:
+            obj.lang = lang
+            obj.save(update_fields=["lang"])
+        return obj.lang
+
+
 class PremiumUser(models.Model):
     telegram_id = models.BigIntegerField(unique=True, db_index=True, help_text="Telegram user ID")
     full_name = models.CharField(max_length=255, blank=True)

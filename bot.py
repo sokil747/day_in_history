@@ -24,6 +24,8 @@ from aiogram.types import (
 )
 
 import config
+
+from asgiref.sync import sync_to_async
 from formatting import build_day_events, build_grouped_events
 from db_service import (
     a_active_ads_on,
@@ -55,6 +57,9 @@ bot = Bot(token=config.BOT_TOKEN)
 dp = Dispatcher()
 
 START_CALLBACK = "start"
+START_UK_CALLBACK = "start_uk"
+START_EN_CALLBACK = "start_en"
+LANG_TOGGLE_CALLBACK = "lang_toggle"
 DAY_IN_HISTORY_CALLBACK = "day_in_history"
 WEEK_EVENTS_CALLBACK = "week_events"
 MONTH_EVENTS_CALLBACK = "month_events"
@@ -64,8 +69,33 @@ READ_NEXT_CALLBACK = "read_next"
 
 TEXT_COMMANDS = {
     "day": {"day in history", "день в історії", "день"},
-    "week": {"week in history", "important events of the week", "важливі події тижня", "тиждень"},
+    "week": {"week in history", "important events of the week", "важлі події тижня", "важливі події тижня", "тиждень"},
     "month": {"month in history", "important events of the month", "важливі події місяця", "місяць"},
+}
+
+SERVICE_STRINGS = {
+    "uk": {
+        "premium_only": "🔒 Ця функція доступна лише для <b>преміум</b> користувачів.\nЗверніться до адміністратора, щоб отримати доступ.",
+        "premium_alert": "Доступно лише для преміум користувачів",
+        "dev": None,  # from config
+        "no_pages": "Більше немає сторінок",
+        "empty": (
+            "За цей період нічого цікавого не сталося, "
+            "але більше цікавої інформації ви можете знайти на нашому каналі:\n\n"
+        ),
+        "placeholder": "Оберіть кнопку ⤵️",
+    },
+    "en": {
+        "premium_only": "🔒 This feature is available to <b>premium</b> users only.\nContact the administrator to get access.",
+        "premium_alert": "Available to premium users only",
+        "dev": None,  # from config
+        "no_pages": "No more pages",
+        "empty": (
+            "Nothing interesting happened in this period, "
+            "but you can find more interesting information on our channel:\n\n"
+        ),
+        "placeholder": "Pick a button ⬇️",
+    },
 }
 
 chat_responses: dict[int, list[int]] = {}
@@ -106,7 +136,10 @@ def _dev_mode_config() -> dict:
     return cfg if isinstance(cfg, dict) else {}
 
 
-def _dev_message() -> str:
+def _dev_message(lang: str = "uk") -> str:
+    dev_en = _dev_mode_config().get("message_en")
+    if lang == "en" and dev_en:
+        return dev_en
     return _dev_mode_config().get(
         "message", "🚧 Ця функція в розробці. Скоро буде доступна!"
     )
@@ -174,7 +207,20 @@ def _effective_today() -> date:
     return date.today()
 
 
-async def _build_keyboard(user_id: int | None = None):
+def _cfg(key: str, lang: str = "uk") -> str:
+    if lang == "en":
+        return welcome_config.get(f"{key}_en") or welcome_config.get(key, "")
+    return welcome_config.get(key, "")
+
+
+def _svc(key: str, lang: str) -> str:
+    val = SERVICE_STRINGS[lang].get(key)
+    if val is None and key == "dev":
+        return _dev_message(lang)
+    return val if val is not None else ""
+
+
+async def _build_keyboard(user_id: int | None = None, lang: str = "uk"):
     from db_service import (
         a_premium_lock_mode,
     )
@@ -190,21 +236,26 @@ async def _build_keyboard(user_id: int | None = None):
     show_week = week_ok or lock_mode == "inactive"
     show_month = month_ok or lock_mode == "inactive"
     week_text = (
-        welcome_config["week_button_text"] if week_ok else _locked_text(welcome_config["week_button_text"])
+        _cfg("week_button_text", lang) if week_ok else _locked_text(_cfg("week_button_text", lang))
     )
     month_text = (
-        welcome_config["month_button_text"] if month_ok else _locked_text(welcome_config["month_button_text"])
+        _cfg("month_button_text", lang) if month_ok else _locked_text(_cfg("month_button_text", lang))
     )
+
+    # bottom row: language toggle
+    toggle_row: list = [
+        InlineKeyboardButton(text=_cfg("lang_toggle_text", "uk"), callback_data=LANG_TOGGLE_CALLBACK)
+    ]
 
     if _sticky_enabled():
         # narrow mobile buttons: split the long word so the emoji is not
-        # alone on the first line — «🎲 Випадко⏎вий день»
-        random_text = welcome_config["random_day_text"].replace(
-            "Випадковий", "Випадко\nвий"
-        )
+        # alone on the first line — «🎲 Випадко⏎вий день» (uk only)
+        random_text = _cfg("random_day_text", lang)
+        if lang == "uk":
+            random_text = random_text.replace("Випадковий", "Випадко\nвий")
         buttons = [
             KeyboardButton(text=random_text),
-            KeyboardButton(text=welcome_config["day_button_text"]),
+            KeyboardButton(text=_cfg("day_button_text", lang)),
         ]
         if show_week:
             buttons.append(KeyboardButton(text=week_text))
@@ -214,19 +265,19 @@ async def _build_keyboard(user_id: int | None = None):
             keyboard=[buttons],
             resize_keyboard=True,
             is_persistent=True,
-            input_field_placeholder="Оберіть кнопку ⤵️",
+            input_field_placeholder=_svc("placeholder", lang),
         )
 
     rows = [
         [
             InlineKeyboardButton(
-                text=welcome_config["random_day_text"],
+                text=_cfg("random_day_text", lang),
                 callback_data=RANDOM_DAY_CALLBACK,
             )
         ],
         [
             InlineKeyboardButton(
-                text=welcome_config["day_button_text"],
+                text=_cfg("day_button_text", lang),
                 callback_data=DAY_IN_HISTORY_CALLBACK,
             )
         ],
@@ -249,46 +300,44 @@ async def _build_keyboard(user_id: int | None = None):
                 )
             ]
         )
+    rows.append(toggle_row)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _premium_required_text() -> str:
-    return (
-        "🔒 Ця функція доступна лише для <b>преміум</b> користувачів.\n"
-        "Зверніться до адміністратора, щоб отримати доступ."
-    )
+def _premium_required_text(lang: str = "uk") -> str:
+    return _svc("premium_only", lang)
 
 
-def _back_button_text() -> str:
-    return welcome_config.get("back_to_menu_text", "Назад в Головне меню")
+def _back_button_text(lang: str = "uk") -> str:
+    return _cfg("back_to_menu_text", lang)
 
 
 def _read_next_enabled() -> bool:
     return bool(welcome_config.get("read_next_enabled", False))
 
 
-def _read_next_text() -> str:
-    return welcome_config.get("read_next_text", "Читати далі")
+def _read_next_text(lang: str = "uk") -> str:
+    return _cfg("read_next_text", lang)
 
 
-def _read_next_keyboard(chat_id: int) -> InlineKeyboardMarkup:
+def _read_next_keyboard(chat_id: int, lang: str = "uk") -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
     if read_next_pages.get(chat_id):
         rows.append(
-            [InlineKeyboardButton(text=_read_next_text(), callback_data=READ_NEXT_CALLBACK)]
+            [InlineKeyboardButton(text=_read_next_text(lang), callback_data=READ_NEXT_CALLBACK)]
         )
     rows.append(
-        [InlineKeyboardButton(text=_back_button_text(), callback_data=BACK_CALLBACK)]
+        [InlineKeyboardButton(text=_back_button_text(lang), callback_data=BACK_CALLBACK)]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _back_keyboard() -> InlineKeyboardMarkup:
+def _back_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=_back_button_text(),
+                    text=_back_button_text(lang),
                     callback_data=BACK_CALLBACK,
                 )
             ]
@@ -296,14 +345,24 @@ def _back_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def _user_lang(user_id: int | None) -> str:
+    from core.models import UserLang
+
+    return UserLang.get_lang(user_id)
+
+
 def _welcome_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=welcome_config["start_button_text"],
-                    callback_data=START_CALLBACK,
-                )
+                    text=_cfg("start_button_uk_text", "uk"),
+                    callback_data=START_UK_CALLBACK,
+                ),
+                InlineKeyboardButton(
+                    text=_cfg("start_button_en_text", "uk"),
+                    callback_data=START_EN_CALLBACK,
+                ),
             ]
         ]
     )
@@ -335,22 +394,80 @@ async def cmd_start(message: Message) -> None:
     await _send_welcome(message)
 
 
-@dp.callback_query(F.data == START_CALLBACK)
-async def on_start(callback: CallbackQuery) -> None:
+@dp.callback_query(F.data.in_({START_UK_CALLBACK, START_EN_CALLBACK}))
+async def on_start_lang(callback: CallbackQuery) -> None:
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
-    kb = await _build_keyboard(uid)
+    lang = "en" if callback.data == START_EN_CALLBACK else "uk"
+    if uid:
+        from core.models import UserLang
+
+        await sync_to_async(UserLang.set_lang)(uid, lang)
+    kb = await _build_keyboard(uid, lang)
     try:
         await callback.message.answer_photo(
             FSInputFile(welcome_config["about_img"]),
-            caption=welcome_config["about_text"],
+            caption=_cfg("about_text", lang),
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
     except Exception as exc:
         logging.warning("Failed to send about image: %s", exc)
         await callback.message.answer(
-            welcome_config["about_text"],
+            _cfg("about_text", lang),
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+    finally:
+        await callback.answer()
+
+
+@dp.callback_query(F.data == START_CALLBACK)
+async def on_start(callback: CallbackQuery) -> None:
+    # legacy single-start callback: open in saved or default language
+    _track_subscriber(callback.from_user.id if callback.from_user else None)
+    uid = callback.from_user.id if callback.from_user else None
+    lang = _user_lang(uid)
+    kb = await _build_keyboard(uid, lang)
+    try:
+        await callback.message.answer_photo(
+            FSInputFile(welcome_config["about_img"]),
+            caption=_cfg("about_text", lang),
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as exc:
+        logging.warning("Failed to send about image: %s", exc)
+        await callback.message.answer(
+            _cfg("about_text", lang),
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+    finally:
+        await callback.answer()
+
+
+@dp.callback_query(F.data == LANG_TOGGLE_CALLBACK)
+async def on_lang_toggle(callback: CallbackQuery) -> None:
+    uid = callback.from_user.id if callback.from_user else None
+    if uid:
+        from core.models import UserLang
+
+        new_lang = await sync_to_async(UserLang.set_lang)(uid, "en" if _user_lang(uid) == "uk" else "uk")
+    else:
+        new_lang = "uk"
+    kb = await _build_keyboard(uid, new_lang)
+    try:
+        await callback.message.answer_photo(
+            FSInputFile(welcome_config["about_img"]),
+            caption=_cfg("about_text", new_lang),
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+    except Exception as exc:
+        logging.warning("Failed to send about image: %s", exc)
+        await callback.message.answer(
+            _cfg("about_text", new_lang),
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
         )
@@ -615,72 +732,66 @@ async def _send_footer_tail(message: Message, footer_tail: str) -> None:
         )
 
 
-def _channel_footer() -> str:
-    return welcome_config.get(
-        "welcome_footer",
-        "👉 <b>Пульс індустрії тут:</b>\n"
-        '🔔 <a href="https://t.me/InsiderKidsNews">@InsiderKidsNews</a>',
-    )
+def _channel_footer(lang: str = "uk") -> str:
+    return _cfg("welcome_footer", lang)
 
 
-def _empty_events_text() -> str:
-    return (
-        "За цей період нічого цікавого не сталося, "
-        "але більше цікавої інформації ви можете знайти на нашому каналі:\n\n"
-        f"{_channel_footer()}"
-    )
+def _empty_events_text(lang: str = "uk") -> str:
+    return f"{_svc('empty', lang)}{_channel_footer(lang)}"
 
 
-def _ad_inquiry_marker() -> str:
-    return "Хочете розмістити рекламу"
-
-
-async def _send_day_screen(message: Message, records) -> None:
-    day_footer = welcome_config.get("day_footer", "")
+async def _send_day_screen(message: Message, records, lang: str = "uk") -> None:
+    day_footer = _cfg("day_footer", lang)
     footer_head, ad_header, footer_tail = _split_footer(day_footer)
     if records:
-        events_text = build_day_events(records)
+        events_text = build_day_events(records, lang=lang)
     else:
-        events_text = _empty_events_text()
+        events_text = _empty_events_text(lang)
     if not _ads_enabled() and footer_head:
         # ads off — keep only the channel-link part of the footer
-        cut = footer_head.find(_ad_inquiry_marker())
+        marker = _ad_inquiry_marker(lang)
+        cut = footer_head.find(marker)
         footer_head = footer_head[:cut].rstrip() if cut != -1 else footer_head
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
     await _send_photo_then_text(
-        message, "day_img", welcome_config["day_header"], events_text
+        message, "day_img", _cfg("day_header", lang), events_text
     )
     if _ads_enabled():
         await _send_ads(message, ad_header)
         await _send_footer_tail(message, footer_tail)
-    await _send_back_button(message)
+    await _send_back_button(message, lang)
 
 
 async def _send_grouped_screen(
-    message: Message, image_key: str, records
+    message: Message, image_key: str, records, lang: str = "uk"
 ) -> None:
-    day_footer = welcome_config.get("day_footer", "")
+    day_footer = _cfg("day_footer", lang)
     footer_head, ad_header, footer_tail = _split_footer(day_footer)
     if records:
-        events_text = build_grouped_events(records)
+        events_text = build_grouped_events(records, lang=lang)
     else:
-        events_text = _empty_events_text()
+        events_text = _empty_events_text(lang)
     if not _ads_enabled() and footer_head:
-        cut = footer_head.find(_ad_inquiry_marker())
+        marker = _ad_inquiry_marker(lang)
+        cut = footer_head.find(marker)
         footer_head = footer_head[:cut].rstrip() if cut != -1 else footer_head
     if footer_head:
         events_text = f"{events_text}\n\n\n{footer_head}"
     await _send_photo_then_text(
-        message, image_key, welcome_config["day_header"], events_text
+        message, image_key, _cfg("day_header", lang), events_text
     )
     if _ads_enabled():
         await _send_ads(message, ad_header)
         await _send_footer_tail(message, footer_tail)
-    await _send_back_button(message)
+    await _send_back_button(message, lang)
 
 
-async def _send_back_button(message: Message) -> None:
+def _ad_inquiry_marker(lang: str = "uk") -> str:
+    return "Want to place an ad" if lang == "en" else "Хочете розмістити рекламу"
+
+
+async def _send_back_button(message: Message, lang: str = "uk") -> None:
     # attach back button to the last message of the screen — no extra message
     ids = chat_responses.get(message.chat.id) or []
     if not ids:
@@ -689,7 +800,7 @@ async def _send_back_button(message: Message) -> None:
         await bot.edit_message_reply_markup(
             chat_id=message.chat.id,
             message_id=ids[-1],
-            reply_markup=_read_next_keyboard(message.chat.id),
+            reply_markup=_read_next_keyboard(message.chat.id, lang),
         )
     except TelegramBadRequest as exc:
         logging.warning("Failed to attach back button: %s", exc)
@@ -699,12 +810,13 @@ async def _send_back_button(message: Message) -> None:
 async def on_read_next(callback: CallbackQuery) -> None:
     chat_id = callback.message.chat.id
     queue = read_next_pages.get(chat_id)
+    lang = _user_lang(callback.from_user.id if callback.from_user else None)
     if not queue:
-        await callback.answer("Більше немає сторінок", show_alert=True)
+        await callback.answer(_svc("no_pages", lang), show_alert=True)
         return
     piece = queue.pop(0)
     # every revealed page carries «Назад»; «Читати далі» only while pages remain
-    kb = _read_next_keyboard(chat_id)
+    kb = _read_next_keyboard(chat_id, lang)
     sent = await callback.message.answer(
         piece,
         parse_mode=ParseMode.HTML,
@@ -716,7 +828,7 @@ async def on_read_next(callback: CallbackQuery) -> None:
         read_next_pages.pop(chat_id, None)
     # strip the read-next row from the clicked message (keep its back row)
     try:
-        await callback.message.edit_reply_markup(reply_markup=_back_keyboard())
+        await callback.message.edit_reply_markup(reply_markup=_back_keyboard(lang))
     except TelegramBadRequest:
         pass
     await callback.answer()
@@ -737,12 +849,13 @@ async def on_back_to_main(callback: CallbackQuery) -> None:
 async def on_day_in_history(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
+    lang = _user_lang(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     try:
         records = await _get_records_cached(
             "day", _effective_today(), a_find_records_for_date
         )
-        await _send_day_screen(callback.message, records)
+        await _send_day_screen(callback.message, records, lang)
         await _send_timing(callback.message, started)
     finally:
         await callback.answer()
@@ -753,18 +866,19 @@ async def on_week_events(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
+    lang = _user_lang(uid)
     if _is_dev_button("week") and uid not in config.ADMIN_IDS:
-        await callback.answer(_dev_message(), show_alert=True)
+        await callback.answer(_dev_message(lang), show_alert=True)
         return
     if not await a_can_access_week(uid):
-        await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
+        await callback.answer(_svc("premium_alert", lang), show_alert=True)
         return
     await _clear_previous(callback.message.chat.id)
     try:
         records = await _get_records_cached(
             "week", _effective_today(), a_find_records_for_week
         )
-        await _send_grouped_screen(callback.message, "week_img", records)
+        await _send_grouped_screen(callback.message, "week_img", records, lang)
         await _send_timing(callback.message, started)
     finally:
         await callback.answer()
@@ -775,18 +889,19 @@ async def on_month_events(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
     uid = callback.from_user.id if callback.from_user else None
+    lang = _user_lang(uid)
     if _is_dev_button("month") and uid not in config.ADMIN_IDS:
-        await callback.answer(_dev_message(), show_alert=True)
+        await callback.answer(_dev_message(lang), show_alert=True)
         return
     if not await a_can_access_month(uid):
-        await callback.answer("Доступно лише для преміум користувачів", show_alert=True)
+        await callback.answer(_svc("premium_alert", lang), show_alert=True)
         return
     await _clear_previous(callback.message.chat.id)
     try:
         records = await _get_records_cached(
             "month", _effective_today(), a_find_records_for_month
         )
-        await _send_grouped_screen(callback.message, "month_img", records)
+        await _send_grouped_screen(callback.message, "month_img", records, lang)
         await _send_timing(callback.message, started)
     finally:
         await callback.answer()
@@ -811,30 +926,33 @@ async def _random_day_records() -> list:
 async def on_random_day(callback: CallbackQuery) -> None:
     started = time.perf_counter()
     _track_subscriber(callback.from_user.id if callback.from_user else None)
+    lang = _user_lang(callback.from_user.id if callback.from_user else None)
     await _clear_previous(callback.message.chat.id)
     records = await _random_day_records()
-    await _send_grouped_screen(callback.message, "random_date", records)
+    await _send_grouped_screen(callback.message, "random_date", records, lang)
     await _send_timing(callback.message, started)
     await callback.answer()
 
 
-def _resolve_button_command(text: str) -> str | None:
+def _resolve_button_command(text: str, lang: str = "uk") -> str | None:
     """Map a (sticky) button text, incl. 🔒 suffix / line breaks, to a command kind."""
 
     def _norm(s: str) -> str:
         # drop ALL whitespace (newlines are inserted mid-word for mobile layout)
-        return "".join(s.split()).lower()
+        return "".join(s.split()).lower().replace("🔒", "")
 
-    mapping = {
-        _norm(welcome_config["random_day_text"]): "random",
-        _norm(welcome_config["day_button_text"]): "day",
-        _norm(welcome_config["week_button_text"]): "week",
-        _norm(welcome_config["month_button_text"]): "month",
-    }
+    mapping = {}
+    for key, kind in (
+        ("random_day_text", "random"),
+        ("day_button_text", "day"),
+        ("week_button_text", "week"),
+        ("month_button_text", "month"),
+    ):
+        for l in ("uk", "en"):
+            val = _cfg(key, l)
+            if val:
+                mapping[_norm(val)] = kind
     t = _norm(text)
-    if t in mapping:
-        return mapping[t]
-    t = t.rstrip("🔒").strip()  # locked-button suffix
     return mapping.get(t)
 
 
@@ -842,11 +960,13 @@ def _resolve_button_command(text: str) -> str | None:
 async def on_text(message: Message) -> None:
     started = time.perf_counter()
     _track_subscriber(message.from_user.id if message.from_user else None)
+    uid = message.from_user.id if message.from_user else None
+    lang = _user_lang(uid)
     if message.text.startswith("/"):
         return
 
     text = message.text.strip().lower()
-    kind = _resolve_button_command(text)
+    kind = _resolve_button_command(text, lang)
     if kind is None:
         if text in TEXT_COMMANDS["day"]:
             kind = "day"
@@ -859,37 +979,35 @@ async def on_text(message: Message) -> None:
         records = await _get_records_cached(
             "day", _effective_today(), a_find_records_for_date
         )
-        await _send_day_screen(message, records)
+        await _send_day_screen(message, records, lang)
         await _send_timing(message, started)
     elif kind == "week":
-        uid = message.from_user.id if message.from_user else None
         if _is_dev_button("week") and uid not in config.ADMIN_IDS:
-            await message.answer(_dev_message(), parse_mode=ParseMode.HTML)
+            await message.answer(_dev_message(lang), parse_mode=ParseMode.HTML)
             return
         if not await a_can_access_week(uid):
-            await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
+            await message.answer(_svc("premium_only", lang), parse_mode=ParseMode.HTML)
             return
         records = await _get_records_cached(
             "week", _effective_today(), a_find_records_for_week
         )
-        await _send_grouped_screen(message, "week_img", records)
+        await _send_grouped_screen(message, "week_img", records, lang)
         await _send_timing(message, started)
     elif kind == "month":
-        uid = message.from_user.id if message.from_user else None
         if _is_dev_button("month") and uid not in config.ADMIN_IDS:
-            await message.answer(_dev_message(), parse_mode=ParseMode.HTML)
+            await message.answer(_dev_message(lang), parse_mode=ParseMode.HTML)
             return
         if not await a_can_access_month(uid):
-            await message.answer(_premium_required_text(), parse_mode=ParseMode.HTML)
+            await message.answer(_svc("premium_only", lang), parse_mode=ParseMode.HTML)
             return
         records = await _get_records_cached(
             "month", _effective_today(), a_find_records_for_month
         )
-        await _send_grouped_screen(message, "month_img", records)
+        await _send_grouped_screen(message, "month_img", records, lang)
         await _send_timing(message, started)
     elif kind == "random":
         records = await _random_day_records()
-        await _send_grouped_screen(message, "random_date", records)
+        await _send_grouped_screen(message, "random_date", records, lang)
         await _send_timing(message, started)
     else:
         await _send_welcome(message)

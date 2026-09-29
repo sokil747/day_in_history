@@ -23,6 +23,7 @@ def _event_to_record(e: Event) -> HistoryRecord:
         emoji=e.emoji,
         category=e.category,
         text=e.text,
+        text_en=e.text_en,
         source=e.source,
     )
 

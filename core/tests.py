@@ -95,6 +95,97 @@ class EventTextEnFieldTests(TestCase):
         self.assertEqual(fetched.text_en, "text")
 
 
+class UserLangTests(TestCase):
+    def test_default_uk_and_get_or_create(self):
+        from core.models import UserLang
+
+        lang = UserLang.get_lang(12345)
+        self.assertEqual(lang, "uk")
+        self.assertEqual(UserLang.get_lang(12345), "uk")
+        UserLang.set_lang(12345, "en")
+        self.assertEqual(UserLang.get_lang(12345), "en")
+        self.assertEqual(UserLang.objects.filter(telegram_id=12345).count(), 1)
+
+    def test_returns_uk_for_none_user(self):
+        from core.models import UserLang
+
+        self.assertEqual(UserLang.get_lang(None), "uk")
+        self.assertEqual(UserLang.set_lang(None, "en"), "uk")
+        self.assertEqual(UserLang.objects.count(), 0)
+
+
+class HistoryRecordTextEnTests(TestCase):
+    def test_find_records_for_date_includes_text_en(self):
+        from db_service import find_records_for_date
+        import datetime
+
+        Event.objects.create(month=9, day=21, order=1, text="укр", text_en="en")
+        records = find_records_for_date(datetime.date(2026, 9, 21))
+        self.assertEqual(records[0].text, "укр")
+        self.assertEqual(records[0].text_en, "en")
+
+    def test_find_records_for_month_and_week_carry_text_en(self):
+        from db_service import find_records_for_month, find_records_for_week
+        import datetime
+
+        Event.objects.create(month=9, day=21, order=1, text="укр", text_en="en1")
+        Event.objects.create(month=9, day=22, order=1, text="укр2", text_en="en2")
+        month = find_records_for_month(datetime.date(2026, 9, 15))
+        self.assertEqual({r.text_en for r in month}, {"en1", "en2"})
+        week = find_records_for_week(datetime.date(2026, 9, 21))
+        self.assertEqual({r.text_en for r in week}, {"en1", "en2"})
+
+
+class FormattingLangTests(TestCase):
+    @staticmethod
+    def _rec(month, day, order, year, text, text_en, emoji="🎉", source=""):
+        from google_sheets_service import HistoryRecord
+
+        return HistoryRecord(
+            month=month, day=day, order=order, year=year,
+            emoji=emoji, category="cat", text=text, source=source, text_en=text_en,
+        )
+
+    def test_day_events_uk_default_unchanged(self):
+        from formatting import build_day_events
+
+        out = build_day_events([self._rec(9, 21, 1, 1905, "Україна стає незалежною", "Ukraine becomes independent")])
+        self.assertIn("21 вересня", out)
+        self.assertIn("україна стає незалежною", out)  # existing behavior: 1st letter lowered after prefix
+        self.assertIn("У 1905 році", out)
+
+    def test_day_events_en_uses_translation(self):
+        from formatting import build_day_events
+
+        out = build_day_events(
+            [self._rec(9, 21, 1, 1905, "Україна стає незалежною", "Ukraine becomes independent", source="https://x.org")],
+            lang="en",
+        )
+        self.assertIn("21 September", out)
+        self.assertIn("ukraine becomes independent", out)  # existing behavior: 1st letter lowered after prefix
+        self.assertIn("In 1905", out)
+        self.assertIn("In 1905", out)
+
+    def test_en_falls_back_to_ukrainian_when_no_translation(self):
+        from formatting import build_day_events
+
+        out = build_day_events(
+            [self._rec(9, 21, 1, 0, "немає перекладу", "")], lang="en"
+        )
+        self.assertIn("немає перекладу", out)
+
+    def test_grouped_events_en(self):
+        from formatting import build_grouped_events
+
+        out = build_grouped_events(
+            [self._rec(9, 21, 1, 1905, "текст", "text"), self._rec(9, 22, 1, 1906, "т2", "t2")],
+            lang="en",
+        )
+        self.assertIn("21 September", out)
+        self.assertIn("22 September", out)
+        self.assertIn("In 1906 t2", out)
+
+
 class SyncPreservesTranslationsTests(TestCase):
     class _Rec:
         def __init__(self, month, day, order, year, emoji, category, text, source):

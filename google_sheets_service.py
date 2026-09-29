@@ -31,6 +31,7 @@ class HistoryRecord:
     category: str
     text: str
     source: str
+    text_en: str = ""
 
 
 @dataclass
