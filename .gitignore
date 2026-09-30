@@ -1,3 +1,5 @@
 data/
 staticfiles/
 *.log
+.venv/
+__pycache__/
