@@ -11,7 +11,7 @@
 
     <span id="tr-controls" style="margin-left:18px;">
       {% if job_status.running %}
-        <a href="/admin/core/event/translate/stop/" id="tr-stop" class="button" style="background:#b91c1c;color:#fff;padding:6px 14px;">⏹ Stop translation</a>
+        <button id="tr-stop" class="button" style="background:#b91c1c;color:#fff;padding:6px 14px;border:none;cursor:pointer;">⏹ Stop translation</button>
         <span id="tr-live" style="margin-left:10px;">
           <b id="tr-progress">{{ job_status.done }}</b>/{{ job_status.total }} events
           {% if job_status.stopping %}<em style="color:#b91c1c;">(stopping…)</em>{% endif %}
@@ -20,27 +20,55 @@
           </span>
         </span>
       {% else %}
-        <a href="/admin/core/event/translate/start/" id="tr-start" class="button" style="background:#1d4ed8;color:#fff;padding:6px 14px;margin-left:18px;">▶ Translate the rest</a>
+        <button id="tr-start" class="button" style="background:#1d4ed8;color:#fff;padding:6px 14px;margin-left:18px;border:none;cursor:pointer;">▶ Translate the rest</button>
       {% endif %}
     </span>
   </div>
 
   <script>
     (function () {
+      var panel = document.getElementById("tr-panel");
+      var startBtn = document.getElementById("tr-start");
+      var stopBtn = document.getElementById("tr-stop");
+
+      function getCookie(name) {
+        var m = document.cookie.match(new RegExp("(^|;\\s*)" + name + "=([^;]*)"));
+        return m ? decodeURIComponent(m[2]) : null;
+      }
+
+      function postAction(url) {
+        fetch(url, {
+          method: "POST",
+          headers: {
+            "X-CSRFToken": getCookie("csrftoken") || "{{ csrf_token }}",
+            "X-Requested-With": "XMLHttpRequest"
+          },
+          credentials: "same-origin"
+        }).then(function (r) {
+          if (r.ok || r.status === 403) window.location.reload();
+        }).catch(function () { window.location.reload(); });
+      }
+
+      if (startBtn) startBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        startBtn.disabled = true;
+        startBtn.textContent = "Starting…";
+        postAction("/admin/core/event/translate/start/");
+      });
+      if (stopBtn) stopBtn.addEventListener("click", function (e) {
+        e.preventDefault();
+        stopBtn.disabled = true;
+        stopBtn.textContent = "Stopping…";
+        postAction("/admin/core/event/translate/stop/");
+      });
+
       var running = {{ job_status.running|yesno:"true,false" }};
       if (!running) return;
       var total = {{ job_status.total|default:0 }};
-      var etaEl = document.getElementById("tr-eta");
       var progEl = document.getElementById("tr-progress");
       var labelEl = document.getElementById("tr-label");
       var barEl = document.getElementById("tr-bar");
       var timingEl = document.getElementById("tr-timing");
-      var t0 = Date.now();
-      var elapsed0 = {{ job_status.elapsed_s|default:0 }};
-      var done0 = {{ job_status.done|default:0 }};
-      var eta0 = {{ job_status.eta_s|default:"null" }};
-
-      function fmt(s) { return Math.round(s); }
 
       var timer = setInterval(function () {
         fetch("/admin/core/event/translate/status/", {headers: {"Accept": "application/json"}})
@@ -51,10 +79,11 @@
             var pct = st.total ? Math.round(st.done / st.total * 1000) / 10 : 0;
             barEl.style.width = pct + "%";
             labelEl.textContent = st.done + " / " + st.total + " (" + pct + "%)";
+            var tail = st.stopping ? " · <em style='color:#b91c1c;'>stopping…</em>" : "";
             if (st.eta_s !== null && st.eta_s !== undefined) {
-              timingEl.innerHTML = "⏱ elapsed " + Math.round(st.elapsed_s) + "s · left ≈ <b>" + Math.round(st.eta_s) + "</b>s" + (st.stopping ? " · <em style='color:#b91c1c;'>stopping…</em>" : "");
+              timingEl.innerHTML = "⏱ elapsed " + Math.round(st.elapsed_s) + "s · left ≈ <b>" + Math.round(st.eta_s) + "</b>s · failed " + st.failed + tail;
             } else {
-              timingEl.innerHTML = "⏱ elapsed " + Math.round(st.elapsed_s) + "s" + (st.stopping ? " · <em style='color:#b91c1c;'>stopping…</em>" : "");
+              timingEl.innerHTML = "⏱ elapsed " + Math.round(st.elapsed_s) + "s · failed " + st.failed + tail;
             }
           })
           .catch(function () {});

@@ -155,10 +155,18 @@ def _append_log(line: str) -> None:
 
 
 def start_in_background(model: str | None = None, base_url: str | None = None) -> bool:
-    """Start the job in a daemon thread; returns False if already running."""
+    """Start the job in a daemon thread; returns False if already running.
+
+    A stale `running` file (process died mid-run) is cleared first: within the
+    admin process there is at most one job thread, and its liveness is checked
+    directly.
+    """
     with _lock:
-        if RUNNING_FILE.exists():
-            return False
+        if is_running():
+            alive = any(t.name == "translate-job" for t in threading.enumerate())
+            if alive:
+                return False
+            RUNNING_FILE.unlink(missing_ok=True)  # stale lock from dead process
         reset_state()
         _write(RUNNING_FILE, "1")
         import time

@@ -11,21 +11,34 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _env_bool(name: str, default: str = "false") -> bool:
+    return os.environ.get(name, default).lower() in ("1", "true", "yes", "y")
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-i-04y^ga@80e@4b+w*f%v&(iwj@(%2)wa544k)k5ofd^8nxi)r'
+SECRET_KEY = os.environ.get(
+    'DJANGO_SECRET_KEY',
+    'django-insecure-i-04y^ga@80e@4b+w*f%v&(iwj@(%2)wa544k)k5ofd^8nxi)r',
+)
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = os.environ.get('DJANGO_DEBUG', 'false').lower() in ('1', 'true', 'yes')
 
-ALLOWED_HOSTS = ['*']
+ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '138.199.165.80,kids-genius.run.place').split(',')
+
+CSRF_TRUSTED_ORIGINS = os.environ.get(
+    'DJANGO_CSRF_TRUSTED_ORIGINS',
+    'http://138.199.165.80,https://kids-genius.run.place',
+).split(',')
 
 
 # Application definition

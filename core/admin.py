@@ -105,14 +105,14 @@ class EventAdmin(admin.ModelAdmin):
             self.message_user(request, "Translation started in background.", messages.SUCCESS)
         else:
             self.message_user(request, "Translation already running.", messages.WARNING)
-        return redirect(request.META.get("HTTP_REFERER") or "/admin/core/event/")
+        return redirect("/admin/core/event/")
 
     def translate_stop(self, request):
         from core import translation_job
 
         translation_job.request_stop()
         self.message_user(request, "Stop requested — finishing current event, then halting.", messages.WARNING)
-        return redirect(request.META.get("HTTP_REFERER") or "/admin/core/event/")
+        return redirect("/admin/core/event/")
 
     def translate_status(self, request):
         import json

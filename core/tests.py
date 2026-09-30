@@ -209,6 +209,11 @@ class TranslationJobTests(TestCase):
             setattr(translation_job, name, Path(self._tmp) / f.name)
 
     def tearDown(self):
+        import time as _t
+
+        deadline = _t.time() + 5
+        while any(t.name == "translate-job" for t in threading.enumerate()) and _t.time() < deadline:
+            _t.sleep(0.05)
         self._job.STATE_DIR = self._orig_state
         for name, f in self._files.items():
             setattr(self._job, name, f)
@@ -303,6 +308,12 @@ class TranslationJobTests(TestCase):
         while self._job.is_running() and _t.time() < deadline:
             _t.sleep(0.05)
         self.assertFalse(self._job.is_running())
+
+    def test_stale_running_file_cleared_on_start(self):
+        (Path(self._tmp) / "running").write_text("1")  # stale from dead process
+        ok = self._job.start_in_background()
+        self.assertTrue(ok)  # no thread alive -> fresh start
+        self.assertTrue(self._job.is_running())
 
     def test_request_stop_writes_stop_file_only_when_running(self):
         from unittest.mock import patch as _patch
