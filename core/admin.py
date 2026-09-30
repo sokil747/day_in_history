@@ -99,12 +99,17 @@ class EventAdmin(admin.ModelAdmin):
 
     def translate_start(self, request):
         from core import translation_job
+        from core.translate_watch import START_SIGNAL
 
-        started = translation_job.start_in_background()
-        if started:
-            self.message_user(request, "Translation started in background.", messages.SUCCESS)
-        else:
+        import sys as _s
+        print(f"[dbg] is_running={translation_job.is_running()} SIGNAL={START_SIGNAL}", file=_s.stderr)
+        if translation_job.is_running():
             self.message_user(request, "Translation already running.", messages.WARNING)
+        else:
+            START_SIGNAL.parent.mkdir(parents=True, exist_ok=True)
+            START_SIGNAL.write_text("1")
+            print(f"[dbg] wrote exists={START_SIGNAL.exists()}", file=_s.stderr)  # bot-side watcher picks this up
+            self.message_user(request, "Translation queued — bot will run it in background.", messages.SUCCESS)
         return redirect("/admin/core/event/")
 
     def translate_stop(self, request):

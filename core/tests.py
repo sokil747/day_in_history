@@ -1,5 +1,6 @@
 from io import StringIO
 import time
+import asyncio
 import threading
 from pathlib import Path
 import urllib.error
@@ -7,7 +8,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
-from django.test import TestCase
+from django.test import TestCase, TransactionTestCase
 
 from core.models import Event
 from core import llm as llm_mod
@@ -371,6 +372,93 @@ class TranslateRetryTests(TestCase):
                 llm_mod.translate("т")
 
 
+class TranslateWatchTests(TransactionTestCase):
+    def setUp(self):
+        import tempfile
+
+        from core import translation_job as tj
+
+        self._job = tj
+        self._orig = {n: getattr(tj, n) for n in
+                      ("STATE_DIR", "RUNNING_FILE", "STOP_FILE", "STARTED_FILE", "LAST_FILE", "DONE_FILE", "FAIL_FILE", "TOTAL_FILE", "LOG_FILE")}
+        self._tmp = Path(tempfile.mkdtemp())
+        tj.STATE_DIR = self._tmp
+        import core.translate_watch as tw
+
+        self._tw = tw
+        self._tw_orig = {n: getattr(tw, n) for n in ("START_SIGNAL",)}
+        tw.START_SIGNAL = self._tmp / "start"
+        for name in ("RUNNING_FILE", "STOP_FILE", "STARTED_FILE", "LAST_FILE", "DONE_FILE", "FAIL_FILE", "TOTAL_FILE", "LOG_FILE"):
+            setattr(tj, name, self._tmp / getattr(tj, name).name)
+        for name in ("DONE_FILE", "FAIL_FILE", "LAST_FILE", "TOTAL_FILE", "RUNNING_FILE", "STOP_FILE", "STARTED_FILE"):
+            setattr(tw, name, self._tmp / getattr(tj, name).name if hasattr(tj, name) else self._tmp / name)
+        self._ensure = Event
+        from django.contrib.auth.models import User
+        self.admin = User.objects.create_superuser("a2", "a2@example.com", "pw")
+        self.client.force_login(self.admin)
+
+    def tearDown(self):
+        import time as _t
+
+        deadline = _t.time() + 5
+        while any(t.name == "translate-job" for t in threading.enumerate()) and _t.time() < deadline:
+            _t.sleep(0.05)
+        for n, v in self._orig.items():
+            setattr(self._job, n, v)
+        for n, v in self._tw_orig.items():
+            setattr(self._tw, n, v)
+
+    def test_admin_start_flips_signal(self):
+        Event.objects.create(month=9, day=21, order=1, text="aa")
+        resp = self.client.post("/admin/core/event/translate/start/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertTrue(self._tw.START_SIGNAL.exists())
+        self.assertTrue(self._tw.read_start_signal())
+        self._tw.clear_start_signal()
+        self.assertFalse(self._tw.read_start_signal())
+
+    def test_translate_once_translates_and_signals_done(self):
+        from unittest.mock import patch as _patch
+        from core import llm as llm_mod
+
+        Event.objects.create(month=9, day=21, order=1, text="xx")
+        Event.objects.create(month=9, day=22, order=1, text="yy", text_en="keep")
+
+        with _patch.object(llm_mod, "translate", lambda t, model=None, base_url=None: f"EN[{t}]"):
+            asyncio.run(self._tw._translate_once(None, None))
+        self.assertEqual(Event.objects.get(month=9, day=21).text_en, "EN[xx]")
+        self.assertEqual(Event.objects.get(month=9, day=22).text_en, "keep")
+        self.assertEqual((self._tmp / "total").read_text(), "1")
+        self.assertEqual((self._tmp / "done").read_text(), "1")
+
+    def test_watch_loop_picks_up_signal_and_runs(self):
+        from unittest.mock import patch as _patch
+        from core import llm as llm_mod
+
+        Event.objects.create(month=9, day=21, order=1, text="zz")
+        self._tw.START_SIGNAL.write_text("1")
+        self._tw.WATCH_INTERVAL_S = 0.05
+
+        from asgiref.sync import sync_to_async as s2a
+
+        async def runner():
+            task = asyncio.create_task(self._tw.watch_loop())
+            for _ in range(200):
+                await asyncio.sleep(0.05)
+                en = await s2a(lambda: Event.objects.get(month=9, day=21).text_en)()
+                if en:
+                    break
+            task.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await task
+
+        with _patch.object(llm_mod, "translate", lambda t, model=None, base_url=None: f"EN[{t}]"):
+            asyncio.run(runner())
+        self.assertEqual(Event.objects.get(month=9, day=21).text_en, "EN[zz]")
+        self.assertFalse(self._tw.START_SIGNAL.exists())
+        self.assertFalse((self._tmp / "running").exists())
+
+
 class TranslationJobStatusTests(TestCase):
     def setUp(self):
         import tempfile
@@ -449,26 +537,18 @@ class TranslationAdminEndpointsTests(TestCase):
         self.assertIn("eta_s", data)
         self.assertIn("elapsed_s", data)
 
-    def test_start_endpoint_launches_job(self):
-        from unittest.mock import patch as _patch
+    def test_start_endpoint_flips_signal_when_idle(self):
+        resp = self.client.post("/admin/core/event/translate/start/")
+        self.assertEqual(resp.status_code, 302)
+        from core.translate_watch import START_SIGNAL
 
-        with _patch.object(self._job, "_Runner", lambda: _BlockingRunner()):
-            resp = self.client.post("/admin/core/event/translate/start/")
-            self.assertTrue(self._job.is_running())
-            import time as _t
+        self.assertTrue(START_SIGNAL.exists())
+        START_SIGNAL.unlink(missing_ok=True)
 
-            self.assertTrue(self._job.is_running())
-
-    def test_stop_endpoint(self):
-        from unittest.mock import patch as _patch
-
-        with _patch.object(self._job, "_Runner", lambda: _BlockingRunner()):
-            self.client.post("/admin/core/event/translate/start/")
-            self.assertTrue(self._job.is_running())
-            resp = self.client.post("/admin/core/event/translate/stop/")
-            self.assertEqual(resp.status_code, 302)
-            self.assertTrue((self._job.STATE_DIR / "stop").exists())
-            self._job.RUNNING_FILE.unlink(missing_ok=True)
+    def test_stop_endpoint_ignored_when_idle(self):
+        resp = self.client.post("/admin/core/event/translate/stop/")
+        self.assertEqual(resp.status_code, 302)
+        self.assertFalse((self._job.STATE_DIR / "stop").exists())
 
     def test_endpoints_require_admin(self):
         self.client.logout()

@@ -1064,6 +1064,9 @@ async def _auto_publish_loop() -> None:
 
 
 async def main() -> None:
+    from core.translate_watch import watch_loop
+
+    asyncio.create_task(watch_loop())
     asyncio.create_task(_auto_publish_loop())
     await dp.start_polling(bot)
 
