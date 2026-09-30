@@ -2,6 +2,7 @@ from io import StringIO
 import time
 import threading
 from pathlib import Path
+import urllib.error
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -314,6 +315,49 @@ class TranslationJobTests(TestCase):
         (Path(self._tmp) / "running").write_text("1")
         self._job.request_stop()
         self.assertTrue((Path(self._tmp) / "stop").exists())
+
+
+class TranslateRetryTests(TestCase):
+    def test_retry_on_server_error_once(self):
+        from core import llm as llm_mod
+
+        calls = []
+
+        def flaky_call(text, model, base_url):
+            calls.append(1)
+            if len(calls) == 1:
+                raise urllib.error.HTTPError("u", 404, "nf", {}, None)
+            return "EN ok"
+
+        with patch.object(llm_mod, "_call_ollama", flaky_call):
+            out = llm_mod.translate("т")
+        self.assertEqual(out, "EN ok")
+        self.assertEqual(len(calls), 2)
+
+    def test_no_retry_on_success(self):
+        from core import llm as llm_mod
+
+        calls = []
+
+        def ok_call(text, model, base_url):
+            calls.append(1)
+            return "EN"
+
+        with patch.object(llm_mod, "_call_ollama", ok_call):
+            llm_mod.translate("т")
+        self.assertEqual(len(calls), 1)
+
+    def test_gives_up_after_max_retries(self):
+        from core import llm as llm_mod
+
+        def always_down(text, model, base_url):
+            raise llm_mod.OllamaUnavailable("404")
+
+        with patch.object(llm_mod, "_call_ollama", always_down), patch.object(
+            llm_mod, "_RETRY_PAUSE_S", 0.01
+        ):
+            with self.assertRaises(llm_mod.OllamaUnavailable):
+                llm_mod.translate("т")
 
 
 class TranslationJobStatusTests(TestCase):
