@@ -327,6 +327,11 @@ def _read_next_keyboard(chat_id: int, lang: str = "uk") -> InlineKeyboardMarkup:
         rows.append(
             [InlineKeyboardButton(text=_read_next_text(lang), callback_data=READ_NEXT_CALLBACK)]
         )
+    # «Назад в Головне меню» sits directly under the En-Ua switcher text-wise:
+    # toggle row above the back row, both last — bottom of the screen message
+    rows.append(
+        [InlineKeyboardButton(text=_cfg("lang_toggle_text", "uk"), callback_data=LANG_TOGGLE_CALLBACK)]
+    )
     rows.append(
         [InlineKeyboardButton(text=_back_button_text(lang), callback_data=BACK_CALLBACK)]
     )
@@ -334,14 +339,21 @@ def _read_next_keyboard(chat_id: int, lang: str = "uk") -> InlineKeyboardMarkup:
 
 
 def _back_keyboard(lang: str = "uk") -> InlineKeyboardMarkup:
+    # clicked read-next strips its row; keep toggle under-switcher order there too
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=_cfg("lang_toggle_text", "uk"),
+                    callback_data=LANG_TOGGLE_CALLBACK,
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text=_back_button_text(lang),
                     callback_data=BACK_CALLBACK,
                 )
-            ]
+            ],
         ]
     )
 

@@ -118,19 +118,52 @@ def _chunk_html(text: str, limit: int) -> list[str]:
     return result
 
 
-def _day_caption(records, cfg: dict) -> str:
-    day_footer = cfg.get("day_footer", "")
+def _day_caption(records, cfg: dict, lang: str = "uk") -> str:
+    day_footer = cfg.get(f"day_footer{'' if lang == 'uk' else '_en'}", "")
     footer_head, ad_header, footer_tail = _split_footer(day_footer)
-    events_text = build_day_events(records) if records else (
-        "За цей день подій немає."
+    events_text = build_day_events(records, lang=lang) if records else (
+        "За цей день подій немає." if lang == "uk" else "No events for this day."
     )
     if not _ads_enabled() and footer_head:
-        cut = footer_head.find(_ad_inquiry_marker())
+        cut = footer_head.find(_ad_inquiry_marker(lang))
         footer_head = footer_head[:cut].rstrip() if cut != -1 else footer_head
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
-    caption = cfg.get("day_header", "") + "\n\n" + events_text
-    return _balance_html(caption), ad_header, footer_tail
+    header = cfg.get(f"day_header{'' if lang == 'uk' else '_en'}", "")
+    caption = header + "\n\n" + events_text
+    return caption, ad_header, footer_tail
+
+
+def _ad_inquiry_marker(lang: str = "uk") -> str:
+    return "Want to place an ad" if lang == "en" else "Хочете розмістити рекламу"
+
+
+def _pack_pages(caption: str, body: str) -> tuple[str, list[str]]:
+    """Same packing as bot: caption holds header + as many lines as fit (<=1024),
+    remainder becomes numbered pages."""
+    if not body:
+        return _balance_html(caption), []
+    full = f"{caption}\n\n{body}"
+    if len(full) <= MAX_CAPTION:
+        return _balance_html(full), []
+    budget = MAX_CAPTION - len(caption) - 2
+    lines = body.split("\n")
+    keep: list[str] = []
+    used = 0
+    for line in lines:
+        add = len(line) + (1 if keep else 0)
+        if used + add > budget:
+            break
+        keep.append(line)
+        used += add
+    caption_part = f"{caption}\n\n" + "\n".join(keep) if keep else caption
+    rest = "\n".join(lines[len(keep):]) if len(keep) < len(lines) else ""
+    pieces = _chunk_html(rest, MAX_MESSAGE) if rest else []
+    total = 1 + len(pieces)
+    if total > 1:
+        caption_part = _balance_html(caption_part) + f"\n\n📄 1/{total}"
+        pieces = [f"📄 {i + 2}/{total}\n\n{p}" for i, p in enumerate(pieces)]
+    return _balance_html(caption_part), pieces
 
 
 def _ad_caption(ad, with_separator: bool) -> str:
@@ -148,8 +181,11 @@ def _ad_caption(ad, with_separator: bool) -> str:
     return "\n\n".join(parts)
 
 
-async def publish_day(bot: Bot, channel: str, target: date | None = None) -> int:
+async def publish_day(bot: Bot, channel: str, target: date | None = None, lang: str = "uk") -> int:
     """Post today's (or given date's) day-in-history screen to the channel.
+
+    Same format as the bot's button screens: image+caption packed to the
+    1024-char limit, numbered 📄 2/N continuation pages, then ads/tail.
 
     Returns number of messages sent.
     """
@@ -161,20 +197,14 @@ async def publish_day(bot: Bot, channel: str, target: date | None = None) -> int
 
     target = target or _effective_today()
     records = await a_find_records_for_date(target)
-    events_caption, ad_header, footer_tail = _day_caption(records, cfg)
+    events_caption, ad_header, footer_tail = _day_caption(records, cfg, lang)
 
     sent_count = 0
     photo = cfg.get("day_img", "assets/day.jpg")
     if not Path(photo).exists():
         photo = None  # text-only fallback
 
-    # Pack caption within Telegram's 1024-char photo-caption limit; overflow pages
-    caption = events_caption
-    pages: list[str] = []
-    if len(caption) > MAX_CAPTION:
-        pieces_full = _chunk_html(events_caption, MAX_CAPTION)
-        caption = pieces_full[0]
-        pages = pieces_full[1:]
+    caption, pages = _pack_pages(header, body)
     try:
         if photo:
             sent = await bot.send_photo(
