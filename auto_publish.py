@@ -200,7 +200,8 @@ async def publish_day(bot: Bot, channel: str, target: date | None = None, lang: 
     events_caption, ad_header, footer_tail = _day_caption(records, cfg, lang)
 
     sent_count = 0
-    photo = cfg.get("day_img", "assets/day.jpg")
+    img_key = f"day_img{'' if lang == 'uk' else '_en'}"
+    photo = cfg.get(img_key) or cfg.get("day_img_uk") or cfg.get("day_img", "assets/uk/day.jpg")
     if not Path(photo).exists():
         photo = None  # text-only fallback
 

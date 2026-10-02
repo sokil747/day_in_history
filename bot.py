@@ -214,6 +214,13 @@ def _cfg(key: str, lang: str = "uk") -> str:
     return welcome_config.get(key, "")
 
 
+def _cfg_img(key: str, lang: str = "uk") -> str:
+    """Image path by language: key_uk/key_en, falling back to plain key."""
+    if lang == "en":
+        return welcome_config.get(f"{key}_en") or welcome_config.get(key, "")
+    return welcome_config.get(f"{key}_uk") or welcome_config.get(key, "")
+
+
 def _svc(key: str, lang: str) -> str:
     val = SERVICE_STRINGS[lang].get(key)
     if val is None and key == "dev":
@@ -385,15 +392,15 @@ def _welcome_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-async def _send_welcome(message: Message) -> None:
+async def _send_welcome(message: Message, lang: str = "uk") -> None:
     user = message.from_user
     footer = _admin_footer(user.id if user else None, (user.full_name or user.username) if user else None)
     caption = (
-        f"{welcome_config['welcome_text']}\n\n{welcome_config['welcome_footer']}{footer}"
+        f"{_cfg('welcome_text', lang)}\n\n{_cfg('welcome_footer', lang)}{footer}"
     )
     try:
         await message.answer_photo(
-            FSInputFile(welcome_config["welcome_img"]),
+            FSInputFile(_cfg_img("welcome_img", lang)),
             caption=caption,
             reply_markup=_welcome_keyboard(),
             parse_mode=ParseMode.HTML,
@@ -423,7 +430,7 @@ async def on_start_lang(callback: CallbackQuery) -> None:
     kb = await _build_keyboard(uid, lang)
     try:
         await callback.message.answer_photo(
-            FSInputFile(welcome_config["about_img"]),
+            FSInputFile(_cfg_img("about_img", lang)),
             caption=_cfg("about_text", lang),
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
@@ -448,7 +455,7 @@ async def on_start(callback: CallbackQuery) -> None:
     kb = await _build_keyboard(uid, lang)
     try:
         await callback.message.answer_photo(
-            FSInputFile(welcome_config["about_img"]),
+            FSInputFile(_cfg_img("about_img", lang)),
             caption=_cfg("about_text", lang),
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
@@ -477,7 +484,7 @@ async def on_lang_toggle(callback: CallbackQuery) -> None:
     kb = await _build_keyboard(uid, new_lang)
     try:
         await callback.message.answer_photo(
-            FSInputFile(welcome_config["about_img"]),
+            FSInputFile(_cfg_img("about_img", new_lang)),
             caption=_cfg("about_text", new_lang),
             reply_markup=kb,
             parse_mode=ParseMode.HTML,
@@ -567,13 +574,14 @@ def _balance_html(text: str) -> str:
 
 
 async def _send_photo_then_text(
-    message: Message, image_key: str, caption: str, body: str, reply_markup=None
+    message: Message, image_key: str, caption: str, body: str, reply_markup=None,
+    lang: str = "uk",
 ) -> None:
     full_caption = f"{caption}\n\n{body}" if body else caption
     try:
         if len(full_caption) <= MAX_CAPTION:
             sent = await message.answer_photo(
-                FSInputFile(welcome_config[image_key]),
+                FSInputFile(_cfg_img(image_key, lang)),
                 caption=full_caption,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
@@ -604,7 +612,7 @@ async def _send_photo_then_text(
                 f"📄 {i + 2}/{total}\n\n{p}" for i, p in enumerate(pieces)
             ]
             sent = await message.answer_photo(
-                FSInputFile(welcome_config[image_key]),
+                FSInputFile(_cfg_img(image_key, lang)),
                 caption=caption_part,
                 reply_markup=reply_markup,
                 parse_mode=ParseMode.HTML,
@@ -613,7 +621,7 @@ async def _send_photo_then_text(
             _remember(message.chat.id, sent)
             return
         sent = await message.answer_photo(
-            FSInputFile(welcome_config[image_key]),
+            FSInputFile(_cfg_img(image_key, lang)),
             caption=caption_part,
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML,
@@ -773,7 +781,7 @@ async def _send_day_screen(message: Message, records, lang: str = "uk") -> None:
     if footer_head:
         events_text = f"{events_text}\n\n{footer_head}"
     await _send_photo_then_text(
-        message, "day_img", _cfg("day_header", lang), events_text
+        message, "day_img", _cfg("day_header", lang), events_text, lang=lang
     )
     if _ads_enabled():
         await _send_ads(message, ad_header)
@@ -797,7 +805,7 @@ async def _send_grouped_screen(
     if footer_head:
         events_text = f"{events_text}\n\n\n{footer_head}"
     await _send_photo_then_text(
-        message, image_key, _cfg("day_header", lang), events_text
+        message, image_key, _cfg("day_header", lang), events_text, lang=lang
     )
     if _ads_enabled():
         await _send_ads(message, ad_header)
