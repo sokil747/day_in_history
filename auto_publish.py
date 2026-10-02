@@ -200,9 +200,13 @@ async def publish_day(bot: Bot, channel: str, target: date | None = None, lang: 
     events_caption, ad_header, footer_tail = _day_caption(records, cfg, lang)
 
     sent_count = 0
-    img_key = f"day_img{'' if lang == 'uk' else '_en'}"
-    photo = cfg.get(img_key) or cfg.get("day_img_uk") or cfg.get("day_img", "assets/uk/day.jpg")
-    if not Path(photo).exists():
+    from pathlib import Path as _P
+
+    img_key_en = "day_img_en"
+    img_key_uk = "day_img_uk"
+    en_path = cfg.get(img_key_en) or cfg.get("day_img", "assets/uk/day.jpg")
+    photo = en_path if (lang == "en" and en_path and _P(en_path).exists()) else cfg.get(img_key_uk, "assets/uk/day.jpg")
+    if not _P(photo).exists():
         photo = None  # text-only fallback
 
     caption, pages = _pack_pages(header, body)

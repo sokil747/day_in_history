@@ -215,9 +215,19 @@ def _cfg(key: str, lang: str = "uk") -> str:
 
 
 def _cfg_img(key: str, lang: str = "uk") -> str:
-    """Image path by language: key_uk/key_en, falling back to plain key."""
-    if lang == "en":
-        return welcome_config.get(f"{key}_en") or welcome_config.get(key, "")
+    """Image path by language: key_uk/key_en, falling back to plain key;
+    if the chosen file is missing on disk, fall back to the UK variant."""
+    from pathlib import Path
+
+    candidates = (
+        [f"{key}_en", key, f"{key}_uk"]
+        if lang == "en"
+        else [f"{key}_uk", key, f"{key}_en"]
+    )
+    for cand_key in candidates:
+        path = welcome_config.get(cand_key)
+        if path and Path(path).exists():
+            return path
     return welcome_config.get(f"{key}_uk") or welcome_config.get(key, "")
 
 
